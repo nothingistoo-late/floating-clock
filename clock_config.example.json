@@ -27,6 +27,8 @@
         "start_time": "08:00",
         "mon_fri_time": "17:45",
         "sat_time": "16:00",
+        "lunch_start": "12:00",
+        "lunch_end": "13:30",
         "auto_schedule": true
     },
     "ai_quotes": {
@@ -74,9 +76,12 @@
     "salary": {
         "enabled": true,
         "monthly": 8000000.0,
-        "work_days": 2,
+        "work_days": 26,
         "work_hours": 8.25,
-        "hidden": false
+        "calc_cycle": "calendar_month",
+        "hidden": false,
+        "show_daily": true,
+        "show_monthly": true
     },
     "focus_task": {
         "enabled": false,
