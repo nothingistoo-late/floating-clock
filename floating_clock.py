@@ -719,6 +719,7 @@ DEFAULT_CONFIG = {
         "monthly": 15000000,
         "work_days": 22,
         "work_hours": 8.0,
+        "calc_cycle": "calendar_month",  # "calendar_month" hoặc "payday_cycle"
         "hidden": False
     },
     # Focus MIT Task (Mục tiêu quan trọng trong ngày)
@@ -1462,6 +1463,39 @@ class ControlCenterDialog(tk.Toplevel):
         self.ent_sal_lunch_end.insert(0, work_cfg.get("lunch_end", "13:15"))
         tk.Label(row3, text="(Tạm dừng tính lương)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left", padx=4)
 
+        row_cycle = tk.Frame(sal_box, bg="#1e2430")
+        row_cycle.pack(fill="x", pady=(4, 2))
+        tk.Label(row_cycle, text="• Chu kỳ tính tháng:", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#38BDF8", width=22, anchor="w").pack(side="left")
+
+        self.var_sal_cycle = tk.StringVar(value=sal_cfg.get("calc_cycle", "calendar_month"))
+        rb1 = tk.Radiobutton(
+            row_cycle,
+            text="📅 Từ ngày 01 đầu tháng dương lịch",
+            variable=self.var_sal_cycle,
+            value="calendar_month",
+            font=("Segoe UI", 8, "bold"),
+            bg="#1e2430",
+            fg="#F8FAFC",
+            selectcolor="#0f172a",
+            activebackground="#1e2430",
+            activeforeground="#38BDF8"
+        )
+        rb1.pack(side="left", padx=(0, 4))
+
+        rb2 = tk.Radiobutton(
+            row_cycle,
+            text="💸 Từ ngày nhận lương tháng trước (sau Ting Ting)",
+            variable=self.var_sal_cycle,
+            value="payday_cycle",
+            font=("Segoe UI", 8, "bold"),
+            bg="#1e2430",
+            fg="#FCD34D",
+            selectcolor="#0f172a",
+            activebackground="#1e2430",
+            activeforeground="#FCD34D"
+        )
+        rb2.pack(side="left", padx=4)
+
         self.var_sal_enabled = tk.BooleanVar(value=sal_cfg.get("enabled", False))
         chk_sal = tk.Checkbutton(
             sal_box,
@@ -1563,6 +1597,7 @@ class ControlCenterDialog(tk.Toplevel):
             hrs = float(self.ent_sal_hours.get().strip())
             ls = self.ent_sal_lunch_start.get().strip()
             le = self.ent_sal_lunch_end.get().strip()
+            cyc = self.var_sal_cycle.get()
             task_txt = self.ent_focus_task.get().strip()
 
             for val, name in [(ls, "Nghỉ trưa bắt đầu"), (le, "Nghỉ trưa kết thúc")]:
@@ -1574,6 +1609,7 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["salary"]["monthly"] = mon
             self.app.config["salary"]["work_days"] = days
             self.app.config["salary"]["work_hours"] = hrs
+            self.app.config["salary"]["calc_cycle"] = cyc
             self.app.config["salary"]["enabled"] = self.var_sal_enabled.get()
             self.app.config["salary"]["show_daily"] = self.var_sal_show_daily.get()
             self.app.config["salary"]["show_monthly"] = self.var_sal_show_monthly.get()
@@ -1589,7 +1625,7 @@ class ControlCenterDialog(tk.Toplevel):
 
             self.app.save_config()
             self.app.update_extra_info_visibility()
-            messagebox.showinfo("Thành công", "Đã lưu thiết lập Tiền Lương & Nghỉ trưa thành công!", parent=self)
+            messagebox.showinfo("Thành công", "Đã lưu thiết lập Tiền Lương & Chu kỳ thành công!", parent=self)
         except Exception as e:
             messagebox.showerror("Lỗi", f"Thông số không hợp lệ: {e}", parent=self)
 
@@ -2928,22 +2964,52 @@ class FloatingClock:
             daily_earned = 0.0
             worked_hours = 0.0
 
-        # Calculate month accumulation up to yesterday
+        # Calculate month accumulation up to yesterday based on calc_cycle
+        cycle_mode = sal_cfg.get("calc_cycle", "calendar_month")
+        payday_day = self.config.get("payday_day", 5)
         past_work_days = 0
-        cur_year = now.year
-        cur_month = now.month
-        for day in range(1, now.day):
+        cycle_label = f"Tháng {now.month}"
+
+        if cycle_mode == "payday_cycle":
             try:
-                dt_d = datetime(cur_year, cur_month, day)
-                w_day = dt_d.weekday()
-                if work_days >= 24:
-                    if w_day <= 5:
-                        past_work_days += 1
+                if now.day >= payday_day:
+                    dt_c_start = datetime(now.year, now.month, min(28, payday_day)).date()
                 else:
-                    if w_day <= 4:
-                        past_work_days += 1
+                    if now.month == 1:
+                        dt_c_start = datetime(now.year - 1, 12, min(28, payday_day)).date()
+                    else:
+                        dt_c_start = datetime(now.year, now.month - 1, min(28, payday_day)).date()
+
+                cur_d = dt_c_start
+                yesterday = now.date() - timedelta(days=1)
+                while cur_d <= yesterday:
+                    w_day = cur_d.weekday()
+                    if work_days >= 24:
+                        if w_day <= 5:
+                            past_work_days += 1
+                    else:
+                        if w_day <= 4:
+                            past_work_days += 1
+                    cur_d += timedelta(days=1)
+                cycle_label = f"Kỳ {dt_c_start.strftime('%d/%m')}"
             except Exception:
-                pass
+                cycle_label = f"Kỳ Lương"
+        else:
+            cur_year = now.year
+            cur_month = now.month
+            for day in range(1, now.day):
+                try:
+                    dt_d = datetime(cur_year, cur_month, day)
+                    w_day = dt_d.weekday()
+                    if work_days >= 24:
+                        if w_day <= 5:
+                            past_work_days += 1
+                    else:
+                        if w_day <= 4:
+                            past_work_days += 1
+                except Exception:
+                    pass
+            cycle_label = f"Tháng {now.month}"
 
         month_earned = min(monthly, (past_work_days * daily_rate) + daily_earned)
         pct_month = (month_earned / monthly) * 100.0 if monthly > 0 else 0.0
@@ -2953,22 +3019,22 @@ class FloatingClock:
 
         if is_hidden:
             daily_str = "💸 Ngày: •••••• đ"
-            month_str = "📅 Tháng: •••••• đ"
+            month_str = f"📅 {cycle_label}: •••••• đ"
         elif is_weekend:
             daily_str = "💸 Ngày: Nghỉ cuối tuần 🌴"
-            month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
+            month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif now < dt_start:
             daily_str = f"💸 Ngày: Chuẩn bị vào ca ☕ ({int(hourly_rate):,}đ/h)".replace(",", ".")
-            month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
+            month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif now >= dt_end:
             daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Đủ {work_hours:.0f}h 🎉)".replace(",", ".")
-            month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
+            month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif is_lunch:
             daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Nghỉ trưa 🍱 {worked_hours:.1f}h)".replace(",", ".")
-            month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
+            month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         else:
             daily_str = f"💸 Ngày: +{int(daily_earned):,} đ ({worked_hours:.1f}h/{work_hours:.0f}h)".replace(",", ".")
-            month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
+            month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
 
         return {
             "daily_earned": daily_earned,
