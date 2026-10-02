@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C# / .NET build outputs
+bin/
+obj/
+*.user
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# PyInstaller & Build artifacts
+build/
+dist/
+*.spec
+_ambient_loop.wav
+
+# IDE & Editor
+.vscode/
+.idea/
+*.suo
+*.userosv
+
+# Local config (contains personal API keys / locations)
+clock_config.json
+

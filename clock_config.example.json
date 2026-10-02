@@ -1,0 +1,89 @@
+{
+    "x": 1498,
+    "y": 69,
+    "opacity": 0.88,
+    "font_size": 24,
+    "text_color": "#F59E0B",
+    "bg_color": "#11141a",
+    "border_color": "#2a3447",
+    "locked": false,
+    "click_through": false,
+    "mini_mode": false,
+    "dynamic_time_color": true,
+    "mode": "target_time",
+    "mascot": "🚀",
+    "show_seconds": true,
+    "show_ms": false,
+    "show_date": true,
+    "show_sublabel": true,
+    "show_quote": true,
+    "show_progress": true,
+    "sound_enabled": true,
+    "time_format_12h": false,
+    "target_time_str": "17:45:00",
+    "target_time_label": "Tan làm (Thứ 6)",
+    "target_time_active": true,
+    "work_departure": {
+        "start_time": "08:00",
+        "mon_fri_time": "17:45",
+        "sat_time": "16:00",
+        "auto_schedule": true
+    },
+    "ai_quotes": {
+        "enabled": true,
+        "provider": "groq",
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "auto_refresh_min": 15
+    },
+    "water_reminder": {
+        "enabled": true,
+        "interval_min": 45
+    },
+    "timer_duration": 180,
+    "timer_remaining": 0,
+    "timer_state": "stopped",
+    "alarms": [
+        {
+            "id": 1,
+            "time": "07:00",
+            "label": "Thức dậy / Buổi sáng",
+            "enabled": false,
+            "repeat": true
+        },
+        {
+            "id": 2,
+            "time": "12:00",
+            "label": "Giờ ăn trưa & nghỉ ngơi",
+            "enabled": false,
+            "repeat": true
+        },
+        {
+            "id": 3,
+            "time": "17:30",
+            "label": "Hết giờ làm việc / Tan ca",
+            "enabled": false,
+            "repeat": true
+        }
+    ],
+    "pomo_work_min": 25,
+    "pomo_break_min": 5,
+    "pomo_long_break_min": 15,
+    "pomo_cycles": 4,
+    "salary": {
+        "enabled": true,
+        "monthly": 8000000.0,
+        "work_days": 2,
+        "work_hours": 8.25,
+        "hidden": false
+    },
+    "focus_task": {
+        "enabled": false,
+        "text": "🎯 Hoàn thành công việc trước 17h45",
+        "done": false
+    },
+    "payday_day": 10,
+    "show_sys_monitor": false,
+    "auto_hide": false
+}
