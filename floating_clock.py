@@ -1148,7 +1148,7 @@ class ControlCenterDialog(tk.Toplevel):
         self.configure(bg="#11141c")
         self.resizable(False, False)
 
-        w, h = 680, 600
+        w, h = 820, 680
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         x = (sw - w) // 2
@@ -1160,7 +1160,7 @@ class ControlCenterDialog(tk.Toplevel):
         self._create_ui()
 
     def _create_ui(self):
-        header = tk.Frame(self, bg="#181e2b", padx=16, pady=12)
+        header = tk.Frame(self, bg="#181e2b", padx=16, pady=10)
         header.pack(fill="x")
 
         lbl_head = tk.Label(
@@ -1175,34 +1175,34 @@ class ControlCenterDialog(tk.Toplevel):
         style = ttk.Style(self)
         style.theme_use("default")
         style.configure("TNotebook", background="#11141c", borderwidth=0)
-        style.configure("TNotebook.Tab", background="#1c2331", foreground="#94a3b8", padding=[12, 6], font=("Segoe UI", 9, "bold"))
+        style.configure("TNotebook.Tab", background="#1c2331", foreground="#94a3b8", padding=[6, 5], font=("Segoe UI", 9, "bold"))
         style.map("TNotebook.Tab", background=[("selected", "#2563eb")], foreground=[("selected", "#ffffff")])
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, padx=12, pady=10)
 
         # Tabs
-        self.tab_target = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_salary = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_weather = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_focus_sound = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_milestones = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_timer = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_alarm = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_stopwatch = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_pomodoro = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
-        self.tab_display = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=12)
+        self.tab_target = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_salary = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_weather = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_focus_sound = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_milestones = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_timer = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_alarm = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_stopwatch = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_pomodoro = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
+        self.tab_display = tk.Frame(self.notebook, bg="#151a24", padx=16, pady=10)
 
         self.notebook.add(self.tab_target, text="🎯 Tan làm")
-        self.notebook.add(self.tab_salary, text="💸 Tiền Lương & Task")
-        self.notebook.add(self.tab_weather, text="🌦️ Thời Tiết")
-        self.notebook.add(self.tab_focus_sound, text="🎧 Âm Thanh")
-        self.notebook.add(self.tab_milestones, text="📅 Lương & Dịp Lễ")
+        self.notebook.add(self.tab_salary, text="💸 Tiền lương")
+        self.notebook.add(self.tab_weather, text="🌦️ Thời tiết")
+        self.notebook.add(self.tab_focus_sound, text="🎧 Âm thanh")
+        self.notebook.add(self.tab_milestones, text="📅 Dịp lễ")
         self.notebook.add(self.tab_timer, text="⏳ Đếm ngược")
         self.notebook.add(self.tab_alarm, text="⏰ Báo thức")
         self.notebook.add(self.tab_stopwatch, text="⏱️ Bấm giờ")
         self.notebook.add(self.tab_pomodoro, text="🍅 Pomodoro")
-        self.notebook.add(self.tab_display, text="🎨 Giao diện & Hệ thống")
+        self.notebook.add(self.tab_display, text="🎨 Giao diện")
 
         self._setup_target_tab()
         self._setup_salary_tab()
@@ -1463,38 +1463,54 @@ class ControlCenterDialog(tk.Toplevel):
         self.ent_sal_lunch_end.insert(0, work_cfg.get("lunch_end", "13:15"))
         tk.Label(row3, text="(Tạm dừng tính lương)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left", padx=4)
 
-        row_cycle = tk.Frame(sal_box, bg="#1e2430")
-        row_cycle.pack(fill="x", pady=(4, 2))
-        tk.Label(row_cycle, text="• Chu kỳ tính tháng:", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#38BDF8", width=22, anchor="w").pack(side="left")
+        cycle_box = tk.Frame(sal_box, bg="#1e2430")
+        cycle_box.pack(fill="x", pady=(4, 4))
+
+        row_c_head = tk.Frame(cycle_box, bg="#1e2430")
+        row_c_head.pack(fill="x", pady=(0, 2))
+        tk.Label(row_c_head, text="• Chu kỳ tính lương tháng:", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#38BDF8").pack(side="left")
 
         self.var_sal_cycle = tk.StringVar(value=sal_cfg.get("calc_cycle", "calendar_month"))
+
+        rb_box = tk.Frame(cycle_box, bg="#1e2430")
+        rb_box.pack(fill="x", padx=(16, 0))
+
         rb1 = tk.Radiobutton(
-            row_cycle,
-            text="📅 Từ ngày 01 đầu tháng dương lịch",
+            rb_box,
+            text="📅 Từ ngày 01 đầu tháng dương lịch (Mặc định)",
             variable=self.var_sal_cycle,
             value="calendar_month",
-            font=("Segoe UI", 8, "bold"),
+            font=("Segoe UI", 9),
             bg="#1e2430",
             fg="#F8FAFC",
             selectcolor="#0f172a",
             activebackground="#1e2430",
             activeforeground="#38BDF8"
         )
-        rb1.pack(side="left", padx=(0, 4))
+        rb1.pack(anchor="w", pady=1)
 
         rb2 = tk.Radiobutton(
-            row_cycle,
-            text="💸 Từ ngày nhận lương tháng trước (sau Ting Ting)",
+            rb_box,
+            text="💸 Từ ngày nhận lương tháng trước (Sau ngày Ting Ting hàng tháng)",
             variable=self.var_sal_cycle,
             value="payday_cycle",
-            font=("Segoe UI", 8, "bold"),
+            font=("Segoe UI", 9),
             bg="#1e2430",
             fg="#FCD34D",
             selectcolor="#0f172a",
             activebackground="#1e2430",
             activeforeground="#FCD34D"
         )
-        rb2.pack(side="left", padx=4)
+        rb2.pack(anchor="w", pady=1)
+
+        row_payday = tk.Frame(sal_box, bg="#1e2430")
+        row_payday.pack(fill="x", pady=(4, 2))
+        tk.Label(row_payday, text="• Ngày nhận lương (Ting Ting):", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#34D399", width=24, anchor="w").pack(side="left")
+        self.spin_sal_payday = tk.Spinbox(row_payday, from_=1, to=31, width=4, font=("Consolas", 10, "bold"), bg="#0f172a", fg="#34D399", justify="center", buttonbackground="#334155")
+        self.spin_sal_payday.pack(side="left", padx=6)
+        self.spin_sal_payday.delete(0, "end")
+        self.spin_sal_payday.insert(0, str(self.app.config.get("payday_day", 5)))
+        tk.Label(row_payday, text="(Hàng tháng, ví dụ: 5, 10, 15)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left", padx=4)
 
         self.var_sal_enabled = tk.BooleanVar(value=sal_cfg.get("enabled", False))
         chk_sal = tk.Checkbutton(
@@ -1579,16 +1595,18 @@ class ControlCenterDialog(tk.Toplevel):
 
         btn_save_sal = tk.Button(
             f,
-            text="💾 Lưu thiết lập Lương & Task",
-            font=("Segoe UI", 10, "bold"),
+            text="💾 LƯU THIẾT LẬP TIỀN LƯƠNG & TASK",
+            font=("Segoe UI", 11, "bold"),
             bg="#10B981",
             fg="#FFFFFF",
+            activebackground="#059669",
+            activeforeground="#FFFFFF",
             relief="flat",
-            pady=6,
+            pady=8,
             cursor="hand2",
             command=self._save_salary_settings
         )
-        btn_save_sal.pack(fill="x", pady=4)
+        btn_save_sal.pack(fill="x", pady=(10, 4))
 
     def _save_salary_settings(self):
         try:
@@ -1604,6 +1622,11 @@ class ControlCenterDialog(tk.Toplevel):
                 parts = val.split(":")
                 if len(parts) != 2 or not (0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
                     raise ValueError(f"Giờ {name} không đúng định dạng HH:MM!")
+
+            p_val = int(self.spin_sal_payday.get().strip())
+            if not (1 <= p_val <= 31):
+                raise ValueError("Ngày nhận lương phải từ 1 đến 31!")
+            self.app.config["payday_day"] = p_val
 
             self.app.config.setdefault("salary", {})
             self.app.config["salary"]["monthly"] = mon
@@ -1790,52 +1813,35 @@ class ControlCenterDialog(tk.Toplevel):
     def _setup_milestones_tab(self):
         f = self.tab_milestones
 
-        tk.Label(f, text="📅 ĐẾM NGƯỢC NGÀY NHẬN LƯƠNG & CÁC DỊP LỄ LỚN", font=("Segoe UI", 11, "bold"), bg="#151a24", fg="#F59E0B").pack(anchor="w", pady=(0, 6))
+        tk.Label(f, text="🎆 ĐẾM NGƯỢC CÁC DỊP LỄ LỚN & MỐC QUAN TRỌNG", font=("Segoe UI", 11, "bold"), bg="#151a24", fg="#F59E0B").pack(anchor="w", pady=(0, 6))
 
-        # Payday config
-        pay_box = tk.LabelFrame(f, text=" 💸 NGÀY NHẬN LƯƠNG HÀNG THÁNG (TING TING DAY) ", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#34D399", padx=12, pady=8)
-        pay_box.pack(fill="x", pady=(0, 10))
-
-        row_p = tk.Frame(pay_box, bg="#1e2430")
-        row_p.pack(fill="x", pady=2)
-        tk.Label(row_p, text="Ngày nhận lương hàng tháng:", font=("Segoe UI", 9), bg="#1e2430", fg="#e2e8f0").pack(side="left", padx=(0, 6))
-        self.spin_payday = tk.Spinbox(row_p, from_=1, to=31, width=4, font=("Consolas", 10, "bold"), bg="#0f172a", fg="#34D399", justify="center", buttonbackground="#334155")
-        self.spin_payday.pack(side="left", padx=4)
-        self.spin_payday.delete(0, "end")
-        self.spin_payday.insert(0, str(self.app.config.get("payday_day", 5)))
-        tk.Label(row_p, text="(Ví dụ: ngày 5, ngày 10 hoặc 15)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left", padx=6)
-
+        # Payday status banner
         now = datetime.now()
         p_day = self.app.config.get("payday_day", 5)
         rem_p_days, p_target_str = self.app.get_payday_countdown_info(now, p_day)
-        self.lbl_payday_status = tk.Label(
-            pay_box,
-            text=f"🎉 Còn {rem_p_days} ngày nữa là đến đợt Ting Ting lương tiếp theo ({p_target_str})! 💸",
+        pay_banner = tk.Frame(f, bg="#1e2430", padx=12, pady=10, relief="groove", bd=1)
+        pay_banner.pack(fill="x", pady=(0, 10))
+
+        tk.Label(
+            pay_banner,
+            text=f"💸 Đợt Ting Ting lương tiếp theo: Ngày {p_day} ({p_target_str}) — Còn {rem_p_days} ngày! 🎉",
             font=("Segoe UI", 10, "bold"),
             bg="#1e2430",
-            fg="#FCD34D"
-        )
-        self.lbl_payday_status.pack(anchor="w", pady=(6, 2))
-
-        btn_save_pay = tk.Button(
-            pay_box,
-            text="💾 Lưu ngày lương",
-            font=("Segoe UI", 9, "bold"),
-            bg="#2563EB",
-            fg="#fff",
-            relief="flat",
-            padx=10,
-            pady=2,
-            cursor="hand2",
-            command=self._save_payday_setting
-        )
-        btn_save_pay.pack(anchor="e")
+            fg="#34D399"
+        ).pack(anchor="w")
+        tk.Label(
+            pay_banner,
+            text="💡 Để đổi ngày nhận lương hàng tháng, bạn vào tab '💸 Tiền Lương & Task' để cài đặt.",
+            font=("Segoe UI", 8, "italic"),
+            bg="#1e2430",
+            fg="#94A3B8"
+        ).pack(anchor="w", pady=(2, 0))
 
         # Holidays list
         hol_box = tk.LabelFrame(f, text=" 🎆 CÁC DỊP LỄ LỚN TIẾP THEO ", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#38BDF8", padx=12, pady=8)
         hol_box.pack(fill="both", expand=True)
 
-        self.tree_milestones = ttk.Treeview(hol_box, columns=("event", "days", "date"), show="headings", height=5)
+        self.tree_milestones = ttk.Treeview(hol_box, columns=("event", "days", "date"), show="headings", height=6)
         self.tree_milestones.heading("event", text="Sự kiện / Dịp lễ")
         self.tree_milestones.heading("days", text="Còn lại")
         self.tree_milestones.heading("date", text="Ngày")
@@ -1845,20 +1851,6 @@ class ControlCenterDialog(tk.Toplevel):
         self.tree_milestones.pack(fill="both", expand=True, pady=4)
 
         self._populate_milestones_list()
-
-    def _save_payday_setting(self):
-        try:
-            val = int(self.spin_payday.get())
-            if not (1 <= val <= 31):
-                raise ValueError()
-            self.app.config["payday_day"] = val
-            self.app.save_config()
-            now = datetime.now()
-            rem_p_days, p_target_str = self.app.get_payday_countdown_info(now, val)
-            self.lbl_payday_status.configure(text=f"🎉 Còn {rem_p_days} ngày nữa là đến đợt Ting Ting lương tiếp theo ({p_target_str})! 💸")
-            messagebox.showinfo("Thành công", "Đã lưu mốc ngày nhận lương!", parent=self)
-        except Exception:
-            messagebox.showerror("Lỗi", "Ngày nhận lương không hợp lệ (1 - 31)!", parent=self)
 
     def _populate_milestones_list(self):
         for item in self.tree_milestones.get_children():
@@ -2753,13 +2745,25 @@ class FloatingClock:
         self._last_rendered_text = ""
         self._last_sublabel_text = ""
         self._last_quote_rendered = ""
+        self._last_sd_rendered = ""
+        self._last_sm_rendered = ""
+        self._last_task_rendered = ""
+        self._last_sys_rendered = ""
+        self._last_weather_rendered = ""
+        self._last_snd_rendered = ""
 
         self._build_ui()
         self.setup_bindings()
         self.create_context_menu()
-        self.request_next_quote()
+        try:
+            self.request_next_quote()
+        except Exception:
+            pass
         if self.config.get("weather", {}).get("enabled", True):
-            self.refresh_weather()
+            try:
+                self.refresh_weather()
+            except Exception:
+                pass
         self.adjust_size_and_position(initial=True)
 
         if self.config.get("click_through", False):
@@ -3027,13 +3031,13 @@ class FloatingClock:
             daily_str = f"💸 Ngày: Chuẩn bị vào ca ☕ ({int(hourly_rate):,}đ/h)".replace(",", ".")
             month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif now >= dt_end:
-            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Đủ {work_hours:.0f}h 🎉)".replace(",", ".")
+            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Xong ca 🎉)".replace(",", ".")
             month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif is_lunch:
-            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Nghỉ trưa 🍱 {worked_hours:.1f}h)".replace(",", ".")
+            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Nghỉ trưa 🍱)".replace(",", ".")
             month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         else:
-            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ ({worked_hours:.1f}h/{work_hours:.0f}h)".replace(",", ".")
+            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ".replace(",", ".")
             month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
 
         return {
@@ -3410,44 +3414,68 @@ class FloatingClock:
 
     # ---------------- 🎛️ CONTEXT MENU ----------------
     def create_context_menu(self):
+        menu_bg = "#151a24"
+        menu_fg = "#f1f5f9"
+        active_bg = "#2563eb"
+        active_fg = "#ffffff"
+        menu_font = ("Segoe UI", 9)
+
         self.menu = tk.Menu(
             self.root,
             tearoff=0,
-            bg="#181e2b",
-            fg="#f1f5f9",
-            activebackground="#2563eb",
-            activeforeground="#ffffff",
-            font=("Segoe UI", 9)
+            bg=menu_bg,
+            fg=menu_fg,
+            activebackground=active_bg,
+            activeforeground=active_fg,
+            font=menu_font
         )
 
+        # 1. ⚙️ BẢNG ĐIỀU KHIỂN & CÀI ĐẶT TOÀN DIỆN (Nổi bật đầu tiên)
+        self.menu.add_command(
+            label="⚙️  Bảng điều khiển & Cài đặt...",
+            font=("Segoe UI", 9, "bold"),
+            command=self.open_control_center
+        )
+        self.menu.add_separator()
+
+        # 2. 🌟 TIỆN ÍCH & THÔNG TIN HÔM NAY (WIDGETS & REALTIME)
         now = datetime.now()
         today_dep, today_tag = self.get_today_departure_info(now)
-
         self.menu.add_command(
-            label=f"🏢 Đếm ngược tan làm hôm nay ({today_tag}: {today_dep[:5]})",
+            label=f"🏢  Đếm ngược tan làm ({today_tag}: {today_dep[:5]})",
             command=self.activate_today_departure
         )
 
-        # Payday info
         p_days, p_date = self.get_payday_countdown_info(now, self.config.get("payday_day", 5))
         self.menu.add_command(
-            label=f"💸 Lương Ting Ting: Còn {p_days} ngày ({p_date})",
+            label=f"💸  Lương Ting Ting: Còn {p_days} ngày ({p_date})",
             command=self.open_control_center
         )
 
         self.menu.add_command(
-            label="🎯 Task trọng tâm hôm nay... [Phím T]",
+            label="🎯  Task trọng tâm hôm nay... [T]",
             command=self.open_quick_task_dialog
         )
 
-        w_str = self.weather_mgr.current_weather_str or "Xem dự báo thời tiết..."
+        w_data = self.weather_mgr.current_data
+        w_city = self.config.get("weather", {}).get("city_name", "")
+        if w_data and "temp" in w_data:
+            w_icon = w_data.get("icon", "🌤️")
+            w_temp = w_data.get("temp", "")
+            w_desc = w_data.get("desc", "")
+            w_label = f"{w_icon}  Thời tiết: {w_city} ({w_temp}°C • {w_desc}) [W]"
+        elif self.weather_mgr.current_weather_str:
+            w_label = f"🌦️  {self.weather_mgr.current_weather_str} [W]"
+        else:
+            w_label = "🌦️  Xem dự báo thời tiết... [W]"
+
         self.menu.add_command(
-            label=f"🌦️ Thời tiết: {w_str} [Phím W]",
+            label=w_label,
             command=lambda: WeatherForecastDialog(self)
         )
 
         # Focus sound submenu
-        focus_menu = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        focus_menu = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         is_snd_playing = self.focus_sound_mgr.is_playing
         cur_snd = self.config.get("focus_sound", {}).get("sound_type", "rain")
 
@@ -3463,64 +3491,65 @@ class FloatingClock:
         else:
             focus_menu.add_command(label="▶ Bật âm thanh tập trung [F9]", command=lambda: self.toggle_focus_sound())
 
-        self.menu.add_cascade(label=f"{'✓ ' if is_snd_playing else '   '}🎧 Âm thanh tập trung (White Noise) [F9]", menu=focus_menu)
+        self.menu.add_cascade(
+            label=f"{'✓ ' if is_snd_playing else '   '}🎧  Âm thanh tập trung (White Noise) [F9]",
+            menu=focus_menu
+        )
 
         self.menu.add_command(
-            label="💬 Đổi câu động viên GenZ mới 🎲",
+            label="💬  Đổi câu động viên GenZ mới 🎲",
             command=self.request_next_quote
         )
-
         self.menu.add_separator()
 
-        is_mini = self.config.get("mini_mode", False)
-        self.menu.add_command(
-            label=f"{'✓ ' if is_mini else '   '}🔍 Chế độ thu nhỏ tối giản (Mini Mode - Phím M)",
-            command=self.toggle_mini_mode
-        )
-
-        is_dyn = self.config.get("dynamic_time_color", True)
-        self.menu.add_command(
-            label=f"{'✓ ' if is_dyn else '   '}🌈 Đổi màu theo thời gian (8h Đỏ • 5h Cam • 2h Vàng • 1h Xanh • <1h Trắng) [Phím D]",
-            command=self.toggle_dynamic_color
-        )
-
-        is_hid_sal = self.config.get("salary", {}).get("hidden", False)
-        self.menu.add_command(
-            label=f"{'✓ ' if is_hid_sal else '   '}🔒 Ẩn / Che số tiền lương [Phím S]",
-            command=self.toggle_salary_hide
-        )
-
-        is_autohide = self.config.get("auto_hide", False)
-        self.menu.add_command(
-            label=f"{'✓ ' if is_autohide else '   '}🧲 Tự động làm mờ khi rời chuột (Auto-hide) [Phím H]",
-            command=self.toggle_autohide
-        )
-
-        self.menu.add_separator()
-
-        mode_menu = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        # 3. 🔄 CHẾ ĐỘ & BỘ ĐẾM GIỜ (MODES & TIMERS)
+        mode_menu = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         modes = [
             ("🕒 Đồng hồ thời gian thực", "clock"),
             ("🎯 Đến thời gian / Tan làm", "target_time"),
             ("⏳ Đếm ngược (Countdown Timer)", "timer"),
-            ("⏱️ Bấm giờ (Stopwatch)", "stopwatch"),
+            ("⏱️ Bấm giờ thể thao (Stopwatch)", "stopwatch"),
             ("🍅 Pomodoro (Làm việc tập trung)", "pomodoro"),
         ]
         for label, m in modes:
             prefix = "✓ " if self.current_mode == m else "   "
             mode_menu.add_command(label=f"{prefix}{label}", command=lambda mode_name=m: self.switch_mode(mode_name))
-        self.menu.add_cascade(label="🔄 Chế độ hoạt động (F2)", menu=mode_menu)
+        self.menu.add_cascade(label="🔄  Chế độ hoạt động [F2]", menu=mode_menu)
 
-        timer_sub = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        timer_sub = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         for name, sec in [("1 Phút", 60), ("3 Phút", 180), ("5 Phút", 300), ("10 Phút", 600), ("15 Phút", 900), ("25 Phút", 1500), ("30 Phút", 1800), ("1 Giờ", 3600)]:
             timer_sub.add_command(label=name, command=lambda s=sec: self.start_quick_timer(s))
-        self.menu.add_cascade(label="⏳ Đặt nhanh đếm ngược", menu=timer_sub)
-
-        self.menu.add_command(label="⚙️ Bảng điều khiển & Cài đặt...", command=self.open_control_center)
-
+        self.menu.add_cascade(label="⏳  Đặt nhanh đếm ngược", menu=timer_sub)
         self.menu.add_separator()
 
-        color_menu = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        # 4. ⚡ BẬT / TẮT NHANH (QUICK TOGGLES)
+        is_mini = self.config.get("mini_mode", False)
+        self.menu.add_command(
+            label=f"{'✓ ' if is_mini else '   '}🔍  Chế độ thu nhỏ tối giản [M]",
+            command=self.toggle_mini_mode
+        )
+
+        is_dyn = self.config.get("dynamic_time_color", True)
+        self.menu.add_command(
+            label=f"{'✓ ' if is_dyn else '   '}🌈  Đổi màu động theo thời gian [D]",
+            command=self.toggle_dynamic_color
+        )
+
+        is_hid_sal = self.config.get("salary", {}).get("hidden", False)
+        self.menu.add_command(
+            label=f"{'✓ ' if is_hid_sal else '   '}🔒  Ẩn / Che số tiền lương [S]",
+            command=self.toggle_salary_hide
+        )
+
+        is_autohide = self.config.get("auto_hide", False)
+        self.menu.add_command(
+            label=f"{'✓ ' if is_autohide else '   '}🧲  Tự làm mờ khi rời chuột [H]",
+            command=self.toggle_autohide
+        )
+        self.menu.add_separator()
+
+        # 5. 🎨 GIAO DIỆN & VỊ TRÍ (APPEARANCE & POSITION)
+        color_menu = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         colors = [
             ("Cyan Neon (Xanh ngọc)", "#00FFCC"),
             ("Lime Green (Xanh lá)", "#10B981"),
@@ -3532,48 +3561,56 @@ class FloatingClock:
             ("Fire Red (Đỏ)", "#EF4444"),
         ]
         for name, col in colors:
-            color_menu.add_command(label=name, command=lambda c=col: self.set_text_color(c))
+            pfx = "✓ " if self.config.get("text_color") == col else "   "
+            color_menu.add_command(label=f"{pfx}{name}", command=lambda c=col: self.set_text_color(c))
         color_menu.add_separator()
-        color_menu.add_command(label="Màu tùy chọn...", command=self.pick_custom_color)
-        self.menu.add_cascade(label="🎨 Đổi màu chữ cố định", menu=color_menu)
+        color_menu.add_command(label="🎨 Màu tùy chọn...", command=self.pick_custom_color)
+        self.menu.add_cascade(label="🎨  Đổi màu chữ cố định", menu=color_menu)
 
-        opacity_menu = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        opacity_menu = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         for val in [1.0, 0.9, 0.75, 0.6, 0.4]:
-            opacity_menu.add_command(label=f"{int(val * 100)}%", command=lambda v=val: self.set_opacity(v))
-        self.menu.add_cascade(label="🌫️ Độ trong suốt (Opacity)", menu=opacity_menu)
+            pfx = "✓ " if abs(self.config.get("opacity", 0.9) - val) < 0.05 else "   "
+            opacity_menu.add_command(label=f"{pfx}{int(val * 100)}%", command=lambda v=val: self.set_opacity(v))
+        self.menu.add_cascade(label="🌫️  Độ trong suốt (Opacity)", menu=opacity_menu)
 
-        size_menu = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        size_menu = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         for sz in [14, 16, 18, 20, 24, 28, 32, 38]:
-            size_menu.add_command(label=f"Cỡ {sz}px", command=lambda s=sz: self.set_font_size(s))
-        self.menu.add_cascade(label="🔤 Kích thước chữ", menu=size_menu)
+            pfx = "✓ " if self.config.get("font_size") == sz else "   "
+            size_menu.add_command(label=f"{pfx}Cỡ {sz}px", command=lambda s=sz: self.set_font_size(s))
+        self.menu.add_cascade(label="🔤  Kích thước chữ", menu=size_menu)
 
-        pos_menu = tk.Menu(self.menu, tearoff=0, bg="#181e2b", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+        pos_menu = tk.Menu(self.menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
         pos_menu.add_command(label="Đỉnh giữa (Top Center)", command=self.reset_to_top_center)
         pos_menu.add_command(label="Đỉnh phải (Top Right)", command=self.reset_to_top_right)
         pos_menu.add_command(label="Đỉnh trái (Top Left)", command=self.reset_to_top_left)
         pos_menu.add_command(label="Đáy giữa (Bottom Center)", command=self.reset_to_bottom_center)
-        self.menu.add_cascade(label="📍 Căn vị trí nhanh", menu=pos_menu)
-
+        self.menu.add_cascade(label="📍  Căn vị trí nhanh", menu=pos_menu)
         self.menu.add_separator()
 
+        # 6. 💻 HỆ THỐNG & CỬA SỔ (SYSTEM & WINDOW)
         is_autostart = is_start_with_windows()
         self.menu.add_command(
-            label=f"{'✓ ' if is_autostart else '   '}🚀 Khởi động cùng Windows",
+            label=f"{'✓ ' if is_autostart else '   '}🚀  Khởi động cùng Windows",
             command=lambda: set_start_with_windows(not is_autostart)
         )
 
         self.menu.add_command(
-            label=f"{'✓ ' if self.config['locked'] else '   '}🔒 Khóa vị trí (Không kéo nhầm)",
+            label=f"{'✓ ' if self.config['locked'] else '   '}🔒  Khóa vị trí (Chống kéo nhầm)",
             command=self.toggle_lock
         )
 
         self.menu.add_command(
-            label=f"{'✓ ' if self.config['click_through'] else '   '}🖱️ Xuyên chuột (F8)",
+            label=f"{'✓ ' if self.config['click_through'] else '   '}🖱️  Xuyên chuột [F8]",
             command=self.toggle_click_through
         )
-
         self.menu.add_separator()
-        self.menu.add_command(label="❌ Đóng ứng dụng", command=self.quit_app)
+
+        # 7. ❌ ĐÓNG ỨNG DỤNG
+        self.menu.add_command(
+            label="❌  Đóng ứng dụng",
+            font=("Segoe UI", 9, "bold"),
+            command=self.quit_app
+        )
 
     def show_context_menu(self, event):
         self.create_context_menu()
@@ -3832,71 +3869,74 @@ class FloatingClock:
 
     # ---------------- 🔄 MASTER UPDATE LOOP ----------------
     def update_loop(self):
-        now = datetime.now()
+        try:
+            now = datetime.now()
 
-        self.check_alarms(now)
-        self.check_target_time(now)
-        self.check_water_reminder()
+            self.check_alarms(now)
+            self.check_target_time(now)
+            self.check_water_reminder()
 
-        # Rotate quote automatically every 45 seconds
-        if time.time() - self.last_quote_update_time > 45:
-            self.request_next_quote()
+            # Rotate quote automatically every 45 seconds
+            if time.time() - self.last_quote_update_time > 45:
+                self.request_next_quote()
 
-        # Check weather update (every 30m by default)
-        w_cfg = self.config.get("weather", {})
-        if w_cfg.get("enabled", True):
-            w_interval = max(5, w_cfg.get("auto_refresh_min", 30)) * 60
-            if time.time() - getattr(self, "_last_weather_check", 0) > w_interval:
-                self._last_weather_check = time.time()
-                self.refresh_weather()
+            # Check weather update (every 30m by default)
+            w_cfg = self.config.get("weather", {})
+            if w_cfg.get("enabled", True):
+                w_interval = max(5, w_cfg.get("auto_refresh_min", 30)) * 60
+                if time.time() - getattr(self, "_last_weather_check", 0) > w_interval:
+                    self._last_weather_check = time.time()
+                    self.refresh_weather()
 
-        # Render extra info (Salary ticker 2 dòng: Ngày & Tháng + Focus MIT Task)
-        if not self.config.get("mini_mode", False):
-            sal_cfg = self.config.get("salary", {})
-            if sal_cfg.get("enabled", False):
-                s_info = self.calculate_salary_info(now)
-                if s_info.get("show_daily", True):
-                    self.salary_daily_label.configure(text=s_info["daily_str"])
-                if s_info.get("show_monthly", True):
-                    self.salary_month_label.configure(text=s_info["month_str"])
+            # Render extra info (Salary ticker 2 dòng: Ngày & Tháng + Focus MIT Task)
+            if not self.config.get("mini_mode", False):
+                sal_cfg = self.config.get("salary", {})
+                if sal_cfg.get("enabled", False):
+                    s_info = self.calculate_salary_info(now)
+                    if s_info.get("show_daily", True):
+                        self.salary_daily_label.configure(text=s_info["daily_str"])
+                    if s_info.get("show_monthly", True):
+                        self.salary_month_label.configure(text=s_info["month_str"])
 
-            if self.config.get("focus_task", {}).get("enabled", False):
-                t_txt = self.config.get("focus_task", {}).get("text", "")
-                if t_txt:
-                    display_t = (t_txt[:30] + "...") if len(t_txt) > 33 else t_txt
-                    self.task_label.configure(text=f"🎯 {display_t}")
+                if self.config.get("focus_task", {}).get("enabled", False):
+                    t_txt = self.config.get("focus_task", {}).get("text", "")
+                    if t_txt:
+                        display_t = (t_txt[:30] + "...") if len(t_txt) > 33 else t_txt
+                        self.task_label.configure(text=f"🎯 {display_t}")
 
-            # Realtime Win32 CPU & RAM monitor
-            if self.config.get("show_sys_monitor", False):
-                cur_sec = int(time.time())
-                if cur_sec != getattr(self, "_last_sys_check_sec", 0):
-                    self._last_sys_check_sec = cur_sec
-                    cpu_val = get_cpu_usage_percent()
-                    ram_val = get_ram_usage_percent()
-                    self.sys_info_label.configure(text=f"⚡ CPU: {cpu_val}%  •  RAM: {ram_val}%")
+                # Realtime Win32 CPU & RAM monitor
+                if self.config.get("show_sys_monitor", False):
+                    cur_sec = int(time.time())
+                    if cur_sec != getattr(self, "_last_sys_check_sec", 0):
+                        self._last_sys_check_sec = cur_sec
+                        cpu_val = get_cpu_usage_percent()
+                        ram_val = get_ram_usage_percent()
+                        self.sys_info_label.configure(text=f"⚡ CPU: {cpu_val}%  •  RAM: {ram_val}%")
 
-        mascot = self.config.get("mascot", "🚀")
-        mascot_prefix = f"{mascot} " if mascot else ""
+            mascot = self.config.get("mascot", "🚀")
+            mascot_prefix = f"{mascot} " if mascot else ""
 
-        if self.current_mode == "clock":
-            self._render_clock_mode(now, mascot_prefix)
-        elif self.current_mode == "timer":
-            self._render_timer_mode(mascot_prefix)
-        elif self.current_mode == "target_time":
-            self._render_target_time_mode(now, mascot_prefix)
-        elif self.current_mode == "stopwatch":
-            self._render_stopwatch_mode(mascot_prefix)
-        elif self.current_mode == "pomodoro":
-            self._render_pomodoro_mode(mascot_prefix)
+            if self.current_mode == "clock":
+                self._render_clock_mode(now, mascot_prefix)
+            elif self.current_mode == "timer":
+                self._render_timer_mode(mascot_prefix)
+            elif self.current_mode == "target_time":
+                self._render_target_time_mode(now, mascot_prefix)
+            elif self.current_mode == "stopwatch":
+                self._render_stopwatch_mode(mascot_prefix)
+            elif self.current_mode == "pomodoro":
+                self._render_pomodoro_mode(mascot_prefix)
 
-        if sound_mgr.is_ringing():
-            self.flash_step += 1
-            fl_color = "#EF4444" if self.flash_step % 2 == 0 else "#F59E0B"
-            self.frame.configure(highlightbackground=fl_color, highlightthickness=2)
-        else:
-            self.frame.configure(highlightbackground=self.config.get("border_color", "#2a3447"), highlightthickness=1)
-
-        self.root.after(50, self.update_loop)
+            if sound_mgr.is_ringing():
+                self.flash_step += 1
+                fl_color = "#EF4444" if self.flash_step % 2 == 0 else "#F59E0B"
+                self.frame.configure(highlightbackground=fl_color, highlightthickness=2)
+            else:
+                self.frame.configure(highlightbackground=self.config.get("border_color", "#2a3447"), highlightthickness=1)
+        except Exception:
+            pass
+        finally:
+            self.root.after(50, self.update_loop)
 
     def _render_clock_mode(self, now, mascot_prefix):
         if self.config.get("time_format_12h", False):
