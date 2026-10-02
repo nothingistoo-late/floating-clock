@@ -678,6 +678,8 @@ DEFAULT_CONFIG = {
         "start_time": "08:30",
         "mon_fri_time": "17:45",
         "sat_time": "16:00",
+        "lunch_start": "12:00",
+        "lunch_end": "13:15",
         "auto_schedule": True
     },
     # AI Quotes API Configuration
@@ -1265,9 +1267,21 @@ class ControlCenterDialog(tk.Toplevel):
         self.ent_sat.insert(0, work_cfg.get("sat_time", "16:00"))
         tk.Label(row2, text="(Mặc định: 16:00)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left")
 
+        row_lunch = tk.Frame(sched_box, bg="#1e2430")
+        row_lunch.pack(fill="x", pady=2)
+        tk.Label(row_lunch, text="• Giờ nghỉ trưa (Lunch):", font=("Segoe UI", 9, "bold"), bg="#1e2430", fg="#FCD34D", width=24, anchor="w").pack(side="left")
+        self.ent_lunch_start = tk.Entry(row_lunch, font=("Consolas", 10, "bold"), width=6, bg="#0f172a", fg="#FCD34D", insertbackground="#fff", justify="center")
+        self.ent_lunch_start.pack(side="left", padx=(6, 2))
+        self.ent_lunch_start.insert(0, work_cfg.get("lunch_start", "12:00"))
+        tk.Label(row_lunch, text="đến", font=("Segoe UI", 8), bg="#1e2430", fg="#cbd5e1").pack(side="left", padx=4)
+        self.ent_lunch_end = tk.Entry(row_lunch, font=("Consolas", 10, "bold"), width=6, bg="#0f172a", fg="#FCD34D", insertbackground="#fff", justify="center")
+        self.ent_lunch_end.pack(side="left", padx=(2, 6))
+        self.ent_lunch_end.insert(0, work_cfg.get("lunch_end", "13:15"))
+        tk.Label(row_lunch, text="(Tạm dừng nhảy lương)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left")
+
         btn_save_sched = tk.Button(
             sched_box,
-            text="💾 Lưu cấu hình giờ tan làm",
+            text="💾 Lưu cấu hình giờ làm & nghỉ trưa",
             font=("Segoe UI", 9, "bold"),
             bg="#2563eb",
             fg="#ffffff",
@@ -1339,7 +1353,9 @@ class ControlCenterDialog(tk.Toplevel):
             st = self.ent_start_time.get().strip()
             mf = self.ent_mon_fri.get().strip()
             sa = self.ent_sat.get().strip()
-            for val, name in [(st, "Bắt đầu làm"), (mf, "T2-T6"), (sa, "Thứ 7")]:
+            ls = self.ent_lunch_start.get().strip()
+            le = self.ent_lunch_end.get().strip()
+            for val, name in [(st, "Bắt đầu làm"), (mf, "T2-T6"), (sa, "Thứ 7"), (ls, "Nghỉ trưa bắt đầu"), (le, "Nghỉ trưa kết thúc")]:
                 parts = val.split(":")
                 if len(parts) != 2 or not (0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
                     raise ValueError(f"Giờ {name} không đúng định dạng HH:MM!")
@@ -1348,12 +1364,14 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["work_departure"]["start_time"] = st
             self.app.config["work_departure"]["mon_fri_time"] = mf
             self.app.config["work_departure"]["sat_time"] = sa
+            self.app.config["work_departure"]["lunch_start"] = ls
+            self.app.config["work_departure"]["lunch_end"] = le
             self.app.save_config()
 
             now = datetime.now()
             today_dep, today_tag = self.app.get_today_departure_info(now)
             self.btn_today_dep.configure(text=f"🏢 ĐẾM NGƯỢC TAN LÀM HÔM NAY ({today_tag}: {today_dep[:5]})")
-            messagebox.showinfo("Thành công", "Đã lưu cấu hình giờ tan làm thành công!", parent=self)
+            messagebox.showinfo("Thành công", "Đã lưu cấu hình giờ làm & nghỉ trưa thành công!", parent=self)
         except Exception as e:
             messagebox.showerror("Lỗi", str(e), parent=self)
 
@@ -1394,6 +1412,13 @@ class ControlCenterDialog(tk.Toplevel):
             "work_hours": 8.0,
             "hidden": False
         })
+        work_cfg = self.app.config.get("work_departure", {
+            "start_time": "08:30",
+            "mon_fri_time": "17:45",
+            "sat_time": "16:00",
+            "lunch_start": "12:00",
+            "lunch_end": "13:15"
+        })
         task_cfg = self.app.config.get("focus_task", {
             "enabled": False,
             "text": "🎯 Hoàn thành công việc trước 17h45",
@@ -1424,6 +1449,18 @@ class ControlCenterDialog(tk.Toplevel):
         self.ent_sal_hours = tk.Entry(row2, font=("Consolas", 10), width=6, bg="#0f172a", fg="#fff", insertbackground="#fff", justify="center")
         self.ent_sal_hours.pack(side="left", padx=6)
         self.ent_sal_hours.insert(0, str(sal_cfg.get("work_hours", 8.0)))
+
+        row3 = tk.Frame(sal_box, bg="#1e2430")
+        row3.pack(fill="x", pady=3)
+        tk.Label(row3, text="• Nghỉ trưa từ:", font=("Segoe UI", 9), bg="#1e2430", fg="#cbd5e1", width=22, anchor="w").pack(side="left")
+        self.ent_sal_lunch_start = tk.Entry(row3, font=("Consolas", 10), width=6, bg="#0f172a", fg="#FCD34D", insertbackground="#fff", justify="center")
+        self.ent_sal_lunch_start.pack(side="left", padx=6)
+        self.ent_sal_lunch_start.insert(0, work_cfg.get("lunch_start", "12:00"))
+        tk.Label(row3, text="đến:", font=("Segoe UI", 9), bg="#1e2430", fg="#cbd5e1", padx=4).pack(side="left")
+        self.ent_sal_lunch_end = tk.Entry(row3, font=("Consolas", 10), width=6, bg="#0f172a", fg="#FCD34D", insertbackground="#fff", justify="center")
+        self.ent_sal_lunch_end.pack(side="left", padx=6)
+        self.ent_sal_lunch_end.insert(0, work_cfg.get("lunch_end", "13:15"))
+        tk.Label(row3, text="(Tạm dừng tính lương)", font=("Segoe UI", 8), bg="#1e2430", fg="#94a3b8").pack(side="left", padx=4)
 
         self.var_sal_enabled = tk.BooleanVar(value=sal_cfg.get("enabled", False))
         chk_sal = tk.Checkbutton(
@@ -1524,7 +1561,14 @@ class ControlCenterDialog(tk.Toplevel):
             mon = float(self.ent_salary_monthly.get().replace(".", "").replace(",", "").strip())
             days = int(self.ent_sal_days.get().strip())
             hrs = float(self.ent_sal_hours.get().strip())
+            ls = self.ent_sal_lunch_start.get().strip()
+            le = self.ent_sal_lunch_end.get().strip()
             task_txt = self.ent_focus_task.get().strip()
+
+            for val, name in [(ls, "Nghỉ trưa bắt đầu"), (le, "Nghỉ trưa kết thúc")]:
+                parts = val.split(":")
+                if len(parts) != 2 or not (0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
+                    raise ValueError(f"Giờ {name} không đúng định dạng HH:MM!")
 
             self.app.config.setdefault("salary", {})
             self.app.config["salary"]["monthly"] = mon
@@ -1535,13 +1579,17 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["salary"]["show_monthly"] = self.var_sal_show_monthly.get()
             self.app.config["salary"]["hidden"] = self.var_sal_hidden.get()
 
+            self.app.config.setdefault("work_departure", {})
+            self.app.config["work_departure"]["lunch_start"] = ls
+            self.app.config["work_departure"]["lunch_end"] = le
+
             self.app.config.setdefault("focus_task", {})
             self.app.config["focus_task"]["text"] = task_txt
             self.app.config["focus_task"]["enabled"] = self.var_task_enabled.get() and bool(task_txt)
 
             self.app.save_config()
             self.app.update_extra_info_visibility()
-            messagebox.showinfo("Thành công", "Đã lưu thiết lập Tiền Lương & Task thành công!", parent=self)
+            messagebox.showinfo("Thành công", "Đã lưu thiết lập Tiền Lương & Nghỉ trưa thành công!", parent=self)
         except Exception as e:
             messagebox.showerror("Lỗi", f"Thông số không hợp lệ: {e}", parent=self)
 
