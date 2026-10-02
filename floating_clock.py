@@ -2875,10 +2875,18 @@ class FloatingClock:
         hourly_rate = daily_rate / work_hours
         sec_rate = hourly_rate / 3600.0
 
-        work_cfg = self.config.get("work_departure", {"start_time": "08:30", "mon_fri_time": "17:45", "sat_time": "16:00"})
+        work_cfg = self.config.get("work_departure", {
+            "start_time": "08:30",
+            "mon_fri_time": "17:45",
+            "sat_time": "16:00",
+            "lunch_start": "12:00",
+            "lunch_end": "13:15"
+        })
         today_str = now.strftime("%Y-%m-%d")
         st_str = work_cfg.get("start_time", "08:30") + ":00"
         dep_time, _ = self.get_today_departure_info(now)
+        ls_str = work_cfg.get("lunch_start", "12:00") + ":00"
+        le_str = work_cfg.get("lunch_end", "13:15") + ":00"
 
         daily_earned = 0.0
         worked_hours = 0.0
@@ -2887,8 +2895,8 @@ class FloatingClock:
         try:
             dt_start = datetime.strptime(f"{today_str} {st_str}", "%Y-%m-%d %H:%M:%S")
             dt_end = datetime.strptime(f"{today_str} {dep_time}", "%Y-%m-%d %H:%M:%S")
-            total_window_sec = (dt_end - dt_start).total_seconds()
-            lunch_sec = max(0.0, total_window_sec - (work_hours * 3600.0))
+            dt_lunch_start = datetime.strptime(f"{today_str} {ls_str}", "%Y-%m-%d %H:%M:%S")
+            dt_lunch_end = datetime.strptime(f"{today_str} {le_str}", "%Y-%m-%d %H:%M:%S")
 
             if now <= dt_start:
                 daily_earned = 0.0
@@ -2897,10 +2905,6 @@ class FloatingClock:
                 worked_hours = work_hours
                 daily_earned = daily_rate
             else:
-                # Quãng nghỉ trưa chuẩn bắt đầu từ 12:00
-                dt_lunch_start = datetime(now.year, now.month, now.day, 12, 0, 0)
-                dt_lunch_end = dt_lunch_start + timedelta(seconds=lunch_sec)
-
                 if dt_start < dt_lunch_start < dt_lunch_end < dt_end:
                     if now < dt_lunch_start:
                         worked_sec = (now - dt_start).total_seconds()
@@ -2912,6 +2916,7 @@ class FloatingClock:
                         afternoon_sec = (now - dt_lunch_end).total_seconds()
                         worked_sec = morning_sec + afternoon_sec
                 else:
+                    total_window_sec = (dt_end - dt_start).total_seconds()
                     ratio = (now - dt_start).total_seconds() / max(1.0, total_window_sec)
                     worked_sec = ratio * (work_hours * 3600.0)
 
