@@ -2822,6 +2822,7 @@ class FloatingClock:
         work_days = max(1, sal_cfg.get("work_days", 22))
         work_hours = max(1.0, float(sal_cfg.get("work_hours", 8.0)))
 
+        # Phân rã lương: 1 Ngày -> 1 Giờ -> 1 Giây
         daily_rate = monthly / work_days
         hourly_rate = daily_rate / work_hours
         sec_rate = hourly_rate / 3600.0
@@ -2832,20 +2833,47 @@ class FloatingClock:
         dep_time, _ = self.get_today_departure_info(now)
 
         daily_earned = 0.0
+        worked_hours = 0.0
+        is_lunch = False
+
         try:
             dt_start = datetime.strptime(f"{today_str} {st_str}", "%Y-%m-%d %H:%M:%S")
             dt_end = datetime.strptime(f"{today_str} {dep_time}", "%Y-%m-%d %H:%M:%S")
+            total_window_sec = (dt_end - dt_start).total_seconds()
+            lunch_sec = max(0.0, total_window_sec - (work_hours * 3600.0))
 
             if now <= dt_start:
                 daily_earned = 0.0
+                worked_hours = 0.0
             elif now >= dt_end:
-                total_sec = (dt_end - dt_start).total_seconds()
-                daily_earned = total_sec * sec_rate
+                worked_hours = work_hours
+                daily_earned = daily_rate
             else:
-                worked_sec = (now - dt_start).total_seconds()
-                daily_earned = worked_sec * sec_rate
+                # Quãng nghỉ trưa chuẩn bắt đầu từ 12:00
+                dt_lunch_start = datetime(now.year, now.month, now.day, 12, 0, 0)
+                dt_lunch_end = dt_lunch_start + timedelta(seconds=lunch_sec)
+
+                if dt_start < dt_lunch_start < dt_lunch_end < dt_end:
+                    if now < dt_lunch_start:
+                        worked_sec = (now - dt_start).total_seconds()
+                    elif dt_lunch_start <= now < dt_lunch_end:
+                        is_lunch = True
+                        worked_sec = (dt_lunch_start - dt_start).total_seconds()
+                    else:
+                        morning_sec = (dt_lunch_start - dt_start).total_seconds()
+                        afternoon_sec = (now - dt_lunch_end).total_seconds()
+                        worked_sec = morning_sec + afternoon_sec
+                else:
+                    ratio = (now - dt_start).total_seconds() / max(1.0, total_window_sec)
+                    worked_sec = ratio * (work_hours * 3600.0)
+
+                worked_sec = max(0.0, min(work_hours * 3600.0, worked_sec))
+                worked_hours = worked_sec / 3600.0
+                # Tiền lương = Số giờ đã làm việc * Lương theo giờ
+                daily_earned = worked_hours * hourly_rate
         except Exception:
             daily_earned = 0.0
+            worked_hours = 0.0
 
         # Calculate month accumulation up to yesterday
         past_work_days = 0
@@ -2877,13 +2905,16 @@ class FloatingClock:
             daily_str = "💸 Ngày: Nghỉ cuối tuần 🌴"
             month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif now < dt_start:
-            daily_str = "💸 Ngày: Chuẩn bị vào ca ☕"
+            daily_str = f"💸 Ngày: Chuẩn bị vào ca ☕ ({int(hourly_rate):,}đ/h)".replace(",", ".")
             month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         elif now >= dt_end:
-            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Hết ca 🎉)".replace(",", ".")
+            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Đủ {work_hours:.0f}h 🎉)".replace(",", ".")
+            month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
+        elif is_lunch:
+            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ (Nghỉ trưa 🍱 {worked_hours:.1f}h)".replace(",", ".")
             month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
         else:
-            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ".replace(",", ".")
+            daily_str = f"💸 Ngày: +{int(daily_earned):,} đ ({worked_hours:.1f}h/{work_hours:.0f}h)".replace(",", ".")
             month_str = f"📅 Tháng: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
 
         return {
