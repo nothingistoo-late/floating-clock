@@ -150,6 +150,20 @@ class ContextMenuBuilder:
             label=f"{'✓ ' if is_mascot else '   '}🐱  Thú cưng Pixel Cat [P]",
             command=app.toggle_mascot
         )
+
+        if is_mascot:
+            mascot_action_menu = tk.Menu(menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
+            cur_act = app.config.get("mascot_action", "auto")
+            acts = [
+                ("🔄 Tự động (Theo giờ & Pomodoro)", "auto"),
+                ("🧘 Thư giãn (Luôn Idle)", "idle"),
+                ("💻 Gõ phím làm việc (Luôn Working)", "work"),
+                ("🎒 Nhảy nhót ăn mừng (Luôn Happy)", "leaving"),
+            ]
+            for act_lbl, act_val in acts:
+                pfx = "✓ " if cur_act == act_val else "   "
+                mascot_action_menu.add_command(label=f"{pfx}{act_lbl}", command=lambda v=act_val: app.set_mascot_action(v))
+            menu.add_cascade(label="   🐾  Hành động của thú cưng", menu=mascot_action_menu)
         menu.add_separator()
 
         # 5. 🎨 GIAO DIỆN & VỊ TRÍ
