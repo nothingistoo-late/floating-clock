@@ -240,6 +240,8 @@ class FloatingClock:
             self.sub_label.pack_forget()
             self.date_label.pack_forget()
             self.quote_label.pack_forget()
+            if hasattr(self, "pomo_ctrl_frame"):
+                self.pomo_ctrl_frame.pack_forget()
             self.salary_daily_label.pack_forget()
             self.salary_month_label.pack_forget()
             self.task_label.pack_forget()
@@ -255,6 +257,7 @@ class FloatingClock:
                 self.date_label.pack(anchor="center", pady=(1, 0))
             if self.config.get("show_quote", True):
                 self.quote_label.pack(anchor="center", pady=(2, 0))
+            self.update_pomo_ctrl_visibility()
             self.update_extra_info_visibility()
 
     def _build_ui(self):
@@ -286,6 +289,66 @@ class FloatingClock:
             fg=self.config.get("text_color", "#00FFCC")
         )
         self.time_label.pack(anchor="center")
+
+        # Pomodoro Control Bar (chỉ hiển thị khi đang ở chế độ Pomodoro)
+        self.pomo_ctrl_frame = tk.Frame(
+            self.frame,
+            bg=self.config.get("bg_color", "#0f131a")
+        )
+        btn_font = ("Segoe UI", 8, "bold")
+        self.btn_pomo_toggle = tk.Button(
+            self.pomo_ctrl_frame,
+            text="▶ Bắt đầu",
+            font=btn_font,
+            bg="#059669",
+            fg="#FFFFFF",
+            activebackground="#10B981",
+            activeforeground="#FFFFFF",
+            bd=0,
+            padx=7,
+            pady=2,
+            relief="flat",
+            cursor="hand2",
+            command=self.toggle_pomodoro
+        )
+        self.btn_pomo_toggle.pack(side="left", padx=2)
+
+        self.btn_pomo_reset = tk.Button(
+            self.pomo_ctrl_frame,
+            text="🔄 Đặt lại",
+            font=btn_font,
+            bg="#1E293B",
+            fg="#94A3B8",
+            activebackground="#334155",
+            activeforeground="#F8FAFC",
+            bd=0,
+            padx=6,
+            pady=2,
+            relief="flat",
+            cursor="hand2",
+            command=self.reset_pomodoro
+        )
+        self.btn_pomo_reset.pack(side="left", padx=2)
+
+        self.btn_pomo_skip = tk.Button(
+            self.pomo_ctrl_frame,
+            text="⏭ Bỏ qua",
+            font=btn_font,
+            bg="#1E293B",
+            fg="#94A3B8",
+            activebackground="#334155",
+            activeforeground="#F8FAFC",
+            bd=0,
+            padx=6,
+            pady=2,
+            relief="flat",
+            cursor="hand2",
+            command=self.skip_pomodoro_stage
+        )
+        self.btn_pomo_skip.pack(side="left", padx=2)
+
+        if self.current_mode == "pomodoro" and not self.config.get("mini_mode", False):
+            self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2))
 
         self.date_label = tk.Label(
             self.frame,
@@ -384,6 +447,20 @@ class FloatingClock:
             self.sub_label.pack(anchor="center", pady=(0, 1), before=self.time_label)
         else:
             self.sub_label.pack_forget()
+
+    def update_pomo_ctrl_visibility(self):
+        if not hasattr(self, "pomo_ctrl_frame"):
+            return
+        if self.config.get("mini_mode", False) or self.current_mode != "pomodoro":
+            self.pomo_ctrl_frame.pack_forget()
+        else:
+            if self.date_label.winfo_manager():
+                self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2), before=self.date_label)
+            elif self.quote_label.winfo_manager():
+                self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2), before=self.quote_label)
+            else:
+                self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2), after=self.time_label)
+            self._update_pomo_ctrl_ui()
 
     def toggle_focus_sound(self):
         st = self.config.get("focus_sound", {}).get("sound_type", "rain")
@@ -525,7 +602,7 @@ class FloatingClock:
             else:
                 self.start_stopwatch()
         elif self.current_mode == "pomodoro":
-            self.pomo_running = not self.pomo_running
+            self.toggle_pomodoro()
         else:
             self.toggle_mini_mode()
 
@@ -540,6 +617,8 @@ class FloatingClock:
                 self.pause_stopwatch()
             else:
                 self.start_stopwatch()
+        elif self.current_mode == "pomodoro":
+            self.toggle_pomodoro()
 
     def show_context_menu(self, event):
         menu = ContextMenuBuilder.build(self)
@@ -562,6 +641,8 @@ class FloatingClock:
         self.config["mode"] = mode_name
         self.update_date_visibility()
         self.update_sublabel_visibility()
+        self.update_pomo_ctrl_visibility()
+        self.adjust_size_and_position(initial=False)
         self.save_config()
 
     def cycle_next_mode(self):
@@ -670,10 +751,48 @@ class FloatingClock:
             return f"{m:02d}:{s:02d}.{cs:02d}"
 
     # ---------------- 🍅 POMODORO LOGIC ----------------
+    def toggle_pomodoro(self):
+        self.pomo_running = not self.pomo_running
+        self.pomo_last_tick = time.time()
+        self._update_pomo_ctrl_ui()
+
+    def reset_pomodoro(self):
+        self.pomo_running = False
+        if self.pomo_stage == "work":
+            self.pomo_remaining = self.config.get("pomo_work_min", 25) * 60
+        elif self.pomo_stage == "break":
+            self.pomo_remaining = self.config.get("pomo_break_min", 5) * 60
+        else:
+            self.pomo_remaining = self.config.get("pomo_long_break_min", 15) * 60
+        self.pomo_last_tick = time.time()
+        self._update_pomo_ctrl_ui()
+
+    def skip_pomodoro_stage(self):
+        self.pomo_running = False
+        if self.pomo_stage == "work":
+            self.pomo_cycle_count += 1
+            if self.pomo_cycle_count % self.config.get("pomo_cycles", 4) == 0:
+                self.start_pomodoro_break(is_long=True)
+            else:
+                self.start_pomodoro_break(is_long=False)
+        else:
+            self.start_pomodoro_work()
+        self._update_pomo_ctrl_ui()
+
+    def _update_pomo_ctrl_ui(self):
+        if not hasattr(self, "btn_pomo_toggle"):
+            return
+        self._last_pomo_btn_running = self.pomo_running
+        if self.pomo_running:
+            self.btn_pomo_toggle.configure(text="⏸ Tạm dừng", bg="#DC2626", activebackground="#EF4444")
+        else:
+            self.btn_pomo_toggle.configure(text="▶ Bắt đầu", bg="#059669", activebackground="#10B981")
+
     def start_pomodoro_work(self):
         self.pomo_stage = "work"
         self.pomo_remaining = self.config.get("pomo_work_min", 25) * 60
         self.pomo_running = True
+        self._update_pomo_ctrl_ui()
 
     def start_pomodoro_break(self, is_long=False):
         if is_long:
@@ -683,6 +802,7 @@ class FloatingClock:
             self.pomo_stage = "break"
             self.pomo_remaining = self.config.get("pomo_break_min", 5) * 60
         self.pomo_running = True
+        self._update_pomo_ctrl_ui()
 
     def trigger_pomodoro_stage_complete(self):
         self.pomo_running = False
@@ -1019,6 +1139,10 @@ class FloatingClock:
         self.time_label.configure(text=time_str, fg=fg_col)
         sub_txt = f"{mascot_prefix}🍅 {st_text} #{self.pomo_cycle_count + 1} [{st_icon}]"
         self.sub_label.configure(text=sub_txt, fg=sub_col)
+
+        if getattr(self, "_last_pomo_btn_running", None) != self.pomo_running:
+            self._update_pomo_ctrl_ui()
+
         self._check_and_resize(time_str, sub_txt)
 
     def _check_and_resize(self, time_str, sub_txt):

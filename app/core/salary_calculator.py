@@ -68,6 +68,7 @@ def calculate_salary_info(now, config, get_today_departure_func):
 
     daily_earned = 0.0
     worked_hours = 0.0
+    today_scheduled_hours = work_hours
     is_lunch = False
 
     try:
@@ -76,11 +77,25 @@ def calculate_salary_info(now, config, get_today_departure_func):
         dt_lunch_start = datetime.strptime(f"{today_str} {ls_str}", "%Y-%m-%d %H:%M:%S")
         dt_lunch_end = datetime.strptime(f"{today_str} {le_str}", "%Y-%m-%d %H:%M:%S")
 
+        # Tính tổng số giây làm việc theo lịch hôm nay (loại trừ giờ nghỉ trưa)
+        if dt_start < dt_lunch_start < dt_lunch_end < dt_end:
+            today_scheduled_sec = (dt_lunch_start - dt_start).total_seconds() + (dt_end - dt_lunch_end).total_seconds()
+        elif dt_start < dt_lunch_start <= dt_end <= dt_lunch_end:
+            today_scheduled_sec = (dt_lunch_start - dt_start).total_seconds()
+        else:
+            today_scheduled_sec = max(0.0, (dt_end - dt_start).total_seconds())
+
+        if today_scheduled_sec <= 0:
+            today_scheduled_sec = work_hours * 3600.0
+
+        today_scheduled_hours = max(0.5, today_scheduled_sec / 3600.0)
+        today_hourly_rate = daily_rate / today_scheduled_hours if today_scheduled_hours > 0 else hourly_rate
+
         if now <= dt_start:
             daily_earned = 0.0
             worked_hours = 0.0
         elif now >= dt_end:
-            worked_hours = work_hours
+            worked_hours = today_scheduled_hours
             daily_earned = daily_rate
         else:
             if dt_start < dt_lunch_start < dt_lunch_end < dt_end:
@@ -96,14 +111,15 @@ def calculate_salary_info(now, config, get_today_departure_func):
             else:
                 total_window_sec = (dt_end - dt_start).total_seconds()
                 ratio = (now - dt_start).total_seconds() / max(1.0, total_window_sec)
-                worked_sec = ratio * (work_hours * 3600.0)
+                worked_sec = ratio * today_scheduled_sec
 
-            worked_sec = max(0.0, min(work_hours * 3600.0, worked_sec))
+            worked_sec = max(0.0, min(today_scheduled_sec, worked_sec))
             worked_hours = worked_sec / 3600.0
-            daily_earned = worked_hours * hourly_rate
+            daily_earned = min(daily_rate, worked_hours * today_hourly_rate)
     except Exception:
         daily_earned = 0.0
         worked_hours = 0.0
+        today_scheduled_hours = work_hours
 
     # Tính lũy kế tháng tới hôm qua
     cycle_mode = sal_cfg.get("calc_cycle", "calendar_month")
@@ -173,7 +189,7 @@ def calculate_salary_info(now, config, get_today_departure_func):
         daily_str = SALARY_TEXTS["before_work"].format(start_time=st_str[:5])
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
     elif is_lunch:
-        pct_day = (worked_hours / work_hours) * 100.0 if work_hours > 0 else 0.0
+        pct_day = (worked_hours / today_scheduled_hours) * 100.0 if today_scheduled_hours > 0 else 0.0
         lunch_txt = SALARY_TEXTS["lunch_break"]
         daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.1f}%) • {lunch_txt}"
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
@@ -183,8 +199,8 @@ def calculate_salary_info(now, config, get_today_departure_func):
         daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.0f}%) • {after_txt}"
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
     else:
-        pct_day = (worked_hours / work_hours) * 100.0 if work_hours > 0 else 0.0
-        daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.1f}%) • {worked_hours:.2f}h / {work_hours:g}h"
+        pct_day = (worked_hours / today_scheduled_hours) * 100.0 if today_scheduled_hours > 0 else 0.0
+        daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.1f}%) • {worked_hours:.2f}h / {today_scheduled_hours:g}h"
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
 
     daily_str = daily_str.replace(",", ".")
@@ -195,6 +211,7 @@ def calculate_salary_info(now, config, get_today_departure_func):
         "daily_str": daily_str,
         "month_str": month_str,
         "worked_hours": worked_hours,
+        "today_scheduled_hours": today_scheduled_hours,
         "show_daily": sal_cfg.get("show_daily", True),
         "show_monthly": sal_cfg.get("show_monthly", True),
         "hidden": is_hidden
