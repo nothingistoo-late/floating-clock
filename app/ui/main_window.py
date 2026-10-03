@@ -22,6 +22,7 @@ from app.ui.dialogs.control_center import ControlCenterDialog
 from app.ui.dialogs.hydration_dialog import HydrationReminderDialog
 from app.ui.dialogs.task_dialog import QuickTaskDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
+from app.services.mascot_service import MascotManager
 from app.messages import ALERT_MESSAGES
 
 
@@ -34,6 +35,8 @@ class FloatingClock:
         self.weather_mgr = WeatherManager(self.config)
         self.focus_sound_mgr = FocusSoundManager(self.config)
         self.ai_mgr = AIManager(self.config)
+        self.mascot_mgr = MascotManager(self.root, self.config)
+        self._last_mascot_state = None
 
         # Global Hotkey Manager (Fix F8 click-through lock)
         self.hotkey_mgr = GlobalHotkeyManager(on_f8_pressed=lambda: self.root.after(0, self.toggle_click_through))
@@ -188,6 +191,12 @@ class FloatingClock:
         return "night"
 
     def request_next_quote(self):
+        now_ts = time.time()
+        # Chống spam gọi API AI liên tục khi click nhanh hoặc double-click
+        if now_ts - getattr(self, "_last_quote_request_ts", 0) < 1.0:
+            return
+        self._last_quote_request_ts = now_ts
+
         now = datetime.now()
         ctx = self.get_current_context_tag(now)
 
@@ -226,7 +235,26 @@ class FloatingClock:
         self.save_config()
 
     def open_quick_task_dialog(self):
-        QuickTaskDialog(self)
+        if hasattr(self, "_task_dialog") and self._task_dialog:
+            try:
+                if self._task_dialog.winfo_exists():
+                    self._task_dialog.lift()
+                    self._task_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._task_dialog = QuickTaskDialog(self)
+
+    def open_weather_dialog(self):
+        if hasattr(self, "_weather_dialog") and self._weather_dialog:
+            try:
+                if self._weather_dialog.winfo_exists():
+                    self._weather_dialog.lift()
+                    self._weather_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._weather_dialog = WeatherForecastDialog(self)
 
     def toggle_autohide(self):
         new_val = not self.config.get("auto_hide", False)
@@ -275,17 +303,22 @@ class FloatingClock:
             self.sys_info_label.pack_forget()
             self.weather_label.pack_forget()
             self.sound_status_label.pack_forget()
+            if hasattr(self, "mascot_label"):
+                self.mascot_label.pack_forget()
             self.frame.configure(padx=10, pady=2)
         else:
             self.frame.configure(padx=16, pady=4)
+            self.update_mascot_visibility()
             if self.config.get("show_sublabel", True):
-                self.sub_label.pack(anchor="center", pady=(0, 1), before=self.time_label)
+                self.sub_label.pack(anchor="center", pady=(0, 1), before=self.main_row)
             if self.config.get("show_date", True) and self.current_mode == "clock":
                 self.date_label.pack(anchor="center", pady=(1, 0))
             if self.config.get("show_quote", True):
                 self.quote_label.pack(anchor="center", pady=(2, 0))
             self.update_pomo_ctrl_visibility()
             self.update_extra_info_visibility()
+
+        self.adjust_size_and_position(initial=False)
 
     def _build_ui(self):
         self.frame = tk.Frame(
@@ -308,14 +341,28 @@ class FloatingClock:
         if self.config.get("show_sublabel", True) and not self.config.get("mini_mode", False):
             self.sub_label.pack(anchor="center", pady=(0, 1))
 
+        self.main_row = tk.Frame(self.frame, bg=self.config.get("bg_color", "#0f131a"))
+        self.main_row.pack(anchor="center")
+
+        self.mascot_label = tk.Label(
+            self.main_row,
+            bg=self.config.get("bg_color", "#0f131a"),
+            cursor="hand2"
+        )
+        if self.config.get("show_mascot", True) and not self.config.get("mini_mode", False):
+            self.mascot_label.pack(side="left", padx=(0, 6))
+
         self.time_label = tk.Label(
-            self.frame,
+            self.main_row,
             text="00:00:00",
             font=("Consolas", self.config.get("font_size", 20), "bold"),
             bg=self.config.get("bg_color", "#0f131a"),
             fg=self.config.get("text_color", "#00FFCC")
         )
-        self.time_label.pack(anchor="center")
+        self.time_label.pack(side="left")
+
+        # Cập nhật sprite ban đầu cho bé mèo
+        self.update_mascot_sprite(force=True)
 
         # Pomodoro Control Bar (chỉ hiển thị khi đang ở chế độ Pomodoro)
         self.pomo_ctrl_frame = tk.Frame(
@@ -453,7 +500,22 @@ class FloatingClock:
             self.date_label.pack_forget()
             return
         if self.config.get("show_date", True) and self.current_mode == "clock":
-            self.date_label.pack(anchor="center", pady=(1, 0))
+            if self.quote_label.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), before=self.quote_label)
+            elif self.salary_daily_label.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), before=self.salary_daily_label)
+            elif self.task_label.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), before=self.task_label)
+            elif self.sys_info_label.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), before=self.sys_info_label)
+            elif self.weather_label.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), before=self.weather_label)
+            elif self.sound_status_label.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), before=self.sound_status_label)
+            elif hasattr(self, "pomo_ctrl_frame") and self.pomo_ctrl_frame.winfo_manager():
+                self.date_label.pack(anchor="center", pady=(1, 0), after=self.pomo_ctrl_frame)
+            else:
+                self.date_label.pack(anchor="center", pady=(1, 0), after=self.main_row)
         else:
             self.date_label.pack_forget()
 
@@ -462,7 +524,22 @@ class FloatingClock:
             self.quote_label.pack_forget()
             return
         if self.config.get("show_quote", True):
-            self.quote_label.pack(anchor="center", pady=(2, 0))
+            if self.salary_daily_label.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), before=self.salary_daily_label)
+            elif self.task_label.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), before=self.task_label)
+            elif self.sys_info_label.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), before=self.sys_info_label)
+            elif self.weather_label.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), before=self.weather_label)
+            elif self.sound_status_label.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), before=self.sound_status_label)
+            elif self.date_label.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), after=self.date_label)
+            elif hasattr(self, "pomo_ctrl_frame") and self.pomo_ctrl_frame.winfo_manager():
+                self.quote_label.pack(anchor="center", pady=(2, 0), after=self.pomo_ctrl_frame)
+            else:
+                self.quote_label.pack(anchor="center", pady=(2, 0), after=self.main_row)
         else:
             self.quote_label.pack_forget()
 
@@ -471,7 +548,7 @@ class FloatingClock:
             self.sub_label.pack_forget()
             return
         if self.config.get("show_sublabel", True):
-            self.sub_label.pack(anchor="center", pady=(0, 1), before=self.time_label)
+            self.sub_label.pack(anchor="center", pady=(0, 1), before=self.main_row)
         else:
             self.sub_label.pack_forget()
 
@@ -486,7 +563,7 @@ class FloatingClock:
             elif self.quote_label.winfo_manager():
                 self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2), before=self.quote_label)
             else:
-                self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2), after=self.time_label)
+                self.pomo_ctrl_frame.pack(anchor="center", pady=(2, 2), after=self.main_row)
             self._update_pomo_ctrl_ui()
 
     def toggle_focus_sound(self):
@@ -556,9 +633,13 @@ class FloatingClock:
         self.adjust_size_and_position(initial=False)
 
     def setup_bindings(self):
-        widgets = (self.root, self.frame, self.time_label, self.sub_label, self.date_label,
+        # Chỉ bind lên các widget giao diện bên trong, KHÔNG bind self.root để tránh Tkinter bubble nhân đôi sự kiện chuột
+        widgets = [self.frame, self.main_row, self.time_label, self.sub_label, self.date_label,
                    self.salary_daily_label, self.salary_month_label, self.task_label,
-                   self.sys_info_label, self.weather_label, self.sound_status_label)
+                   self.sys_info_label, self.weather_label, self.sound_status_label]
+        if hasattr(self, "pomo_ctrl_frame"):
+            widgets.append(self.pomo_ctrl_frame)
+
         for w in widgets:
             w.bind("<ButtonPress-1>", self.start_drag)
             w.bind("<B1-Motion>", self.do_drag)
@@ -566,18 +647,27 @@ class FloatingClock:
             w.bind("<Button-3>", self.show_context_menu)
             w.bind("<Double-Button-1>", self.on_double_click)
 
-        # Quote label: allow drag, but if clicked without moving, fetch next quote
+        # Quote label: cho phép kéo thả, nhả chuột đổi quote, chặn double-click đè lên mini mode
         self.quote_label.bind("<ButtonPress-1>", self.start_drag)
         self.quote_label.bind("<B1-Motion>", self.do_drag)
         self.quote_label.bind("<ButtonRelease-1>", self._on_quote_release)
+        self.quote_label.bind("<Double-Button-1>", lambda e: "break")
         self.quote_label.bind("<Button-3>", self.show_context_menu)
 
-        # Auto-hide bindings
+        # Auto-hide bindings (Enter/Leave cần lắng nghe trên toàn cửa sổ root)
         self.root.bind("<Enter>", self.on_mouse_enter)
         self.root.bind("<Leave>", self.on_mouse_leave)
 
-        # Keyboard shortcuts
-        self.root.bind("<F8>", lambda e: self.toggle_click_through())
+        # Mascot interactions: kéo thả, click kêu meow, chặn double-click đè lên mini mode
+        self.mascot_label.bind("<ButtonPress-1>", self.start_drag)
+        self.mascot_label.bind("<B1-Motion>", self.do_drag)
+        self.mascot_label.bind("<ButtonRelease-1>", self._on_mascot_release)
+        self.mascot_label.bind("<Double-Button-1>", lambda e: "break")
+        self.mascot_label.bind("<Button-3>", self.show_context_menu)
+
+        # Keyboard shortcuts (F8 được quản lý độc quyền bởi Win32 GlobalHotkeyManager)
+        self.root.bind("<p>", lambda e: self.toggle_mascot())
+        self.root.bind("<P>", lambda e: self.toggle_mascot())
         self.root.bind("<F2>", lambda e: self.cycle_next_mode())
         self.root.bind("<F9>", lambda e: self.toggle_focus_sound())
         self.root.bind("<m>", lambda e: self.toggle_mini_mode())
@@ -588,34 +678,160 @@ class FloatingClock:
         self.root.bind("<S>", lambda e: self.toggle_salary_hide())
         self.root.bind("<t>", lambda e: self.open_quick_task_dialog())
         self.root.bind("<T>", lambda e: self.open_quick_task_dialog())
-        self.root.bind("<w>", lambda e: WeatherForecastDialog(self))
-        self.root.bind("<W>", lambda e: WeatherForecastDialog(self))
+        self.root.bind("<w>", lambda e: self.open_weather_dialog())
+        self.root.bind("<W>", lambda e: self.open_weather_dialog())
         self.root.bind("<h>", lambda e: self.toggle_autohide())
         self.root.bind("<H>", lambda e: self.toggle_autohide())
         self.root.bind("<space>", lambda e: self.on_space_key())
 
+    def toggle_mascot(self):
+        self.config["show_mascot"] = not self.config.get("show_mascot", True)
+        self.update_mascot_visibility()
+        self.save_config()
+
+    def update_mascot_visibility(self):
+        if not hasattr(self, "mascot_label"):
+            return
+        if self.config.get("show_mascot", True) and not self.config.get("mini_mode", False):
+            self.mascot_label.pack(side="left", padx=(0, 6), before=self.time_label)
+            self.update_mascot_sprite(force=True)
+        else:
+            self.mascot_label.pack_forget()
+        self.adjust_size_and_position(initial=False)
+
+    def _close_mascot_bubble(self):
+        if hasattr(self, "_bubble_timer") and self._bubble_timer:
+            try:
+                self.root.after_cancel(self._bubble_timer)
+            except Exception:
+                pass
+            self._bubble_timer = None
+
+        if hasattr(self, "_mascot_bubble") and self._mascot_bubble:
+            try:
+                if self._mascot_bubble.winfo_exists():
+                    self._mascot_bubble.destroy()
+            except Exception:
+                pass
+            self._mascot_bubble = None
+
+    def show_mascot_speech_bubble(self, text):
+        self._close_mascot_bubble()
+        try:
+            bubble = tk.Toplevel(self.root)
+            bubble.withdraw()
+            bubble.overrideredirect(True)
+            bubble.attributes("-topmost", True)
+            bubble.attributes("-alpha", 0.95)
+            bubble.configure(bg="#0f172a")
+
+            frame = tk.Frame(
+                bubble,
+                bg="#1e2430",
+                padx=8,
+                pady=4,
+                highlightbackground="#38BDF8",
+                highlightthickness=1
+            )
+            frame.pack(fill="both", expand=True)
+
+            lbl = tk.Label(
+                frame,
+                text=text,
+                font=("Segoe UI", 8, "bold"),
+                bg="#1e2430",
+                fg="#F8FAFC"
+            )
+            lbl.pack()
+
+            bubble.update_idletasks()
+            bw = bubble.winfo_reqwidth()
+            bh = bubble.winfo_reqheight()
+
+            # Vị trí: nổi ngay phía trên đầu bé mèo
+            mx = self.mascot_label.winfo_rootx()
+            my = self.mascot_label.winfo_rooty()
+
+            bx = max(10, mx - (bw // 3))
+            by = my - bh - 6
+            if by < 10:  # Nếu sát mép trên màn hình thì hiện phía dưới
+                by = my + self.mascot_label.winfo_height() + 6
+
+            bubble.geometry(f"{bw}x{bh}+{bx}+{by}")
+            bubble.deiconify()
+            self._mascot_bubble = bubble
+
+            # Tự động đóng bong bóng thoại sau 2.2 giây (hủy bỏ timer cũ nếu người dùng click liên tiếp)
+            self._bubble_timer = self.root.after(2200, self._close_mascot_bubble)
+        except Exception:
+            pass
+
+    def on_mascot_click(self, event=None):
+        now_ts = time.time()
+        # Chống click dồn dập (debounce 350ms)
+        if now_ts - getattr(self, "_last_mascot_click_ts", 0) < 0.35:
+            return "break"
+        self._last_mascot_click_ts = now_ts
+
+        sound_mgr.play_tick()
+        # Kích hoạt trạng thái vui sướng nhảy nhót trong 2 giây
+        self._mascot_happy_until = time.time() + 2.0
+        meow = self.mascot_mgr.get_random_meow()
+        self.show_mascot_speech_bubble(meow)
+        return "break"
+
+    def update_mascot_sprite(self, force=False):
+        if not self.config.get("show_mascot", True) or self.config.get("mini_mode", False):
+            return
+        now = datetime.now()
+        is_leaving_soon = (self.get_current_context_tag(now) in ("leaving_soon", "saturday"))
+        
+        # Nếu vừa được click cưng nựng, mèo chuyển sang nhảy nhót vui sướng
+        if getattr(self, "_mascot_happy_until", 0) > time.time():
+            state = "leaving"
+        else:
+            state = self.mascot_mgr.get_state(self.current_mode, self.pomo_running, is_leaving_soon)
+
+        now_ts = time.time()
+        img = self.mascot_mgr.get_animated_sprite(state, now_ts)
+        if img and (force or getattr(self.mascot_label, "image", None) != img):
+            self.mascot_label.configure(image=img)
+            self.mascot_label.image = img
+
+    def _on_mascot_release(self, event):
+        self.stop_drag(event)
+        if not getattr(self, "drag_moved", False):
+            self.on_mascot_click(event)
+        return "break"
+
     def _on_quote_release(self, event):
         self.stop_drag(event)
-        if not self.drag_moved:
+        if not getattr(self, "drag_moved", False):
             self.request_next_quote()
+        return "break"
 
     def start_drag(self, event):
         if not self.config["locked"]:
             self.drag_start_x = event.x_root - self.root.winfo_x()
             self.drag_start_y = event.y_root - self.root.winfo_y()
             self.drag_moved = False
+        return "break"
 
     def do_drag(self, event):
         if not self.config["locked"]:
             self.drag_moved = True
             x = event.x_root - self.drag_start_x
             y = event.y_root - self.drag_start_y
-            # Multi-monitor drag fix: Allow moving across negative & extra display bounds
-            # Keep at least a small portion on screen
+            # Multi-monitor drag fix: Cho phép di chuyển mượt mà trên nhiều màn hình
             self.root.geometry(f"+{x}+{y}")
+        return "break"
 
-    def stop_drag(self, event):
-        self.save_config()
+    def stop_drag(self, event=None):
+        # Chỉ lưu cấu hình khi vị trí thực sự bị di dời (tránh ghi đĩa vô ích mỗi lần click chuột)
+        if getattr(self, "drag_moved", False):
+            self.save_config()
+            self.drag_moved = False
+        return "break"
 
     def on_double_click(self, event):
         if self.current_mode == "timer":
@@ -632,6 +848,7 @@ class FloatingClock:
             self.toggle_pomodoro()
         else:
             self.toggle_mini_mode()
+        return "break"
 
     def on_space_key(self):
         if self.current_mode == "timer":
@@ -683,9 +900,23 @@ class FloatingClock:
 
         menu.bind("<Unmap>", lambda e: self.root.after(100, _on_menu_dismiss))
         menu.tk_popup(event.x_root, event.y_root)
+        return "break"
 
-    def open_control_center(self):
-        ControlCenterDialog(self)
+    def open_control_center(self, initial_tab=0):
+        if hasattr(self, "_ctrl_dialog") and self._ctrl_dialog:
+            try:
+                if self._ctrl_dialog.winfo_exists():
+                    self._ctrl_dialog.lift()
+                    self._ctrl_dialog.focus_force()
+                    if initial_tab is not None:
+                        try:
+                            self._ctrl_dialog.notebook.select(initial_tab)
+                        except Exception:
+                            pass
+                    return
+            except Exception:
+                pass
+        self._ctrl_dialog = ControlCenterDialog(self, initial_tab=initial_tab)
 
     def activate_today_departure(self):
         now = datetime.now()
@@ -1032,6 +1263,9 @@ class FloatingClock:
                         ram_val = get_ram_usage_percent()
                         self.sys_info_label.configure(text=f"⚡ CPU: {cpu_val}%  •  RAM: {ram_val}%")
 
+            # Cập nhật trạng thái thú cưng Pixel Cat
+            self.update_mascot_sprite()
+
             mascot = self.config.get("mascot", "🚀")
             mascot_prefix = f"{mascot} " if mascot else ""
 
@@ -1362,6 +1596,10 @@ class FloatingClock:
 
     def quit_app(self):
         self._is_closing = True
+        try:
+            self._close_mascot_bubble()
+        except Exception:
+            pass
         # 1. Ẩn cửa sổ ngay tức thì để không bị đơ trên màn hình
         try:
             self.root.withdraw()

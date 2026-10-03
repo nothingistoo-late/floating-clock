@@ -1132,6 +1132,9 @@ class ControlCenterDialog(tk.Toplevel):
         tk.Checkbutton(chk_f, text="Hiện thanh tiến độ ngày làm", variable=self.var_progress, font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC", selectcolor="#1e2430", activebackground="#151a24", command=self._toggle_progress_setting).grid(row=2, column=1, sticky="w", padx=8)
         tk.Checkbutton(chk_f, text="Bật âm thanh / Chuông báo", variable=self.var_sound, font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC", selectcolor="#1e2430", activebackground="#151a24", command=self._toggle_sound_setting).grid(row=2, column=2, sticky="w", padx=8)
 
+        self.var_mascot_cat = tk.BooleanVar(value=self.app.config.get("show_mascot", True))
+        tk.Checkbutton(chk_f, text="🐱 Hiện thú cưng Pixel Cat", variable=self.var_mascot_cat, font=("Segoe UI", 8, "bold"), bg="#151a24", fg="#FCD34D", selectcolor="#1e2430", activebackground="#151a24", command=self._toggle_mascot_cat_setting).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
         ai_box = tk.LabelFrame(f, text="🤖 Cấu hình AI Sinh Câu Động Viên GenZ (Gemini / OpenAI)", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#38BDF8", padx=10, pady=8)
         ai_box.pack(fill="x", pady=(6, 0))
 
@@ -1180,6 +1183,11 @@ class ControlCenterDialog(tk.Toplevel):
     def _select_mascot(self, mascot):
         val = "" if mascot == "None" else mascot
         self.app.config["mascot"] = val
+        self.app.save_config()
+
+    def _toggle_mascot_cat_setting(self):
+        self.app.config["show_mascot"] = self.var_mascot_cat.get()
+        self.app.update_mascot_visibility()
         self.app.save_config()
 
     def _save_ai_config(self):
@@ -1237,7 +1245,13 @@ class ControlCenterDialog(tk.Toplevel):
     def _toggle_autohide_setting(self):
         val = self.var_autohide.get()
         self.app.config["auto_hide"] = val
+        # Loại trừ tương hỗ: Nếu bật Tự làm mờ thì bắt buộc tắt Xuyên chuột để tránh xung đột compositing
+        if val and self.app.config.get("click_through", False):
+            self.app.config["click_through"] = False
+            self.app.apply_click_through(False)
         self.app.save_config()
+        if not val:
+            self.app.root.attributes("-alpha", self.app.config.get("opacity", 0.90))
 
     def _toggle_quote_setting(self):
         val = self.var_quote.get()

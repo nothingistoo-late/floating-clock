@@ -47,7 +47,7 @@ class ContextMenuBuilder:
         p_days, p_date = get_payday_countdown_info(now, app.config.get("payday_day", 5))
         menu.add_command(
             label=f"💸  Lương Ting Ting: Còn {p_days} ngày ({p_date})",
-            command=app.open_control_center
+            command=lambda: app.open_control_center(initial_tab=1)
         )
 
         menu.add_command(
@@ -69,7 +69,7 @@ class ContextMenuBuilder:
 
         menu.add_command(
             label=w_label,
-            command=lambda: WeatherForecastDialog(app)
+            command=app.open_weather_dialog
         )
 
         # Focus sound submenu
@@ -143,6 +143,12 @@ class ContextMenuBuilder:
         menu.add_command(
             label=f"{'✓ ' if is_autohide else '   '}🧲  Tự làm mờ khi rời chuột [H]",
             command=app.toggle_autohide
+        )
+
+        is_mascot = app.config.get("show_mascot", True)
+        menu.add_command(
+            label=f"{'✓ ' if is_mascot else '   '}🐱  Thú cưng Pixel Cat [P]",
+            command=app.toggle_mascot
         )
         menu.add_separator()
 
