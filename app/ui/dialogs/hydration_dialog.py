@@ -2,12 +2,13 @@
 Hydration and Posture Reminder Dialog
 """
 import tkinter as tk
+from app.messages import ALERT_MESSAGES
 
 
 class HydrationReminderDialog(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
-        self.title("💧 Nhắc Nhở Sức Khỏe")
+        self.title(ALERT_MESSAGES["hydration_title"])
         self.attributes("-topmost", True)
         self.configure(bg="#0f172a")
         self.resizable(False, False)
@@ -23,10 +24,10 @@ class HydrationReminderDialog(tk.Toplevel):
         container.pack(fill="both", expand=True)
 
         tk.Label(container, text="💧 🤸 👁️", font=("Segoe UI Emoji", 24), bg="#0f172a", fg="#38BDF8").pack(pady=(0, 4))
-        tk.Label(container, text="UỐNG NƯỚC & VƯƠN VAI NÀO FEN!", font=("Segoe UI", 11, "bold"), bg="#0f172a", fg="#38BDF8").pack(pady=(0, 4))
+        tk.Label(container, text=ALERT_MESSAGES["hydration_header"], font=("Segoe UI", 11, "bold"), bg="#0f172a", fg="#38BDF8").pack(pady=(0, 4))
         tk.Label(
             container,
-            text="Ngồi máy tính lâu rồi, uống 1 ngụm nước, chớp mắt và đứng dậy xoay cổ tay vươn vai xíu nhé!",
+            text=ALERT_MESSAGES["hydration_body"],
             font=("Segoe UI", 9),
             bg="#0f172a",
             fg="#94A3B8",
@@ -36,7 +37,7 @@ class HydrationReminderDialog(tk.Toplevel):
 
         btn = tk.Button(
             container,
-            text="✨ Đã uống nước & khỏe re!",
+            text=ALERT_MESSAGES["hydration_btn"],
             font=("Segoe UI", 10, "bold"),
             bg="#0284C7",
             fg="#FFFFFF",
