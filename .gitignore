@@ -28,4 +28,5 @@ _ambient_loop.wav
 
 # Local config (contains personal API keys / locations)
 clock_config.json
+*.bak
 
