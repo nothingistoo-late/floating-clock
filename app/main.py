@@ -19,8 +19,10 @@ from app.ui.main_window import FloatingClock
 def main():
     try:
         root = tk.Tk()
+        root.withdraw()
         root.title("Top Floating Multi-Clock")
         app = FloatingClock(root)
+        root.deiconify()
         root.mainloop()
     except Exception as e:
         err_msg = traceback.format_exc()

@@ -10,7 +10,8 @@ from app.ui.dialogs.weather_dialog import WeatherForecastDialog
 
 class ContextMenuBuilder:
     @staticmethod
-    def build(app):
+    def build(app, parent=None):
+        target = parent or app.root
         menu_bg = "#151a24"
         menu_fg = "#f1f5f9"
         active_bg = "#2563eb"
@@ -18,7 +19,7 @@ class ContextMenuBuilder:
         menu_font = ("Segoe UI", 9)
 
         menu = tk.Menu(
-            app.root,
+            target,
             tearoff=0,
             bg=menu_bg,
             fg=menu_fg,

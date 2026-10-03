@@ -9,6 +9,7 @@ from app.constants import CITY_COORDINATES
 class WeatherForecastDialog(tk.Toplevel):
     def __init__(self, master_app):
         super().__init__(master_app.root)
+        self.withdraw()
         self.app = master_app
         self.title("🌦️ Dự Báo Thời Tiết (Open-Meteo Realtime)")
         self.attributes("-topmost", True)
@@ -91,6 +92,7 @@ class WeatherForecastDialog(tk.Toplevel):
         btn_close.pack(side="right")
 
         self.bind("<Escape>", lambda e: self.destroy())
+        self.deiconify()
         self.update_weather_data()
 
     def update_weather_data(self):

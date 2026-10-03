@@ -3,6 +3,7 @@ Main Floating Clock Window UI and Core Event Loops
 """
 from datetime import datetime, timedelta
 import math
+import os
 import sys
 import time
 import tkinter as tk
@@ -83,6 +84,12 @@ class FloatingClock:
         self._last_sec_rendered = -1
         self._cached_salary_info = {}
 
+        # Context Menu State & Ghost Window Prevention
+        self._current_menu = None
+        self._menu_anchor = None
+        self._is_menu_open = False
+        self._hydration_dialog = None
+
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", self.config.get("opacity", 0.90))
@@ -92,12 +99,22 @@ class FloatingClock:
         self.setup_bindings()
         self.adjust_size_and_position(initial=True)
 
+        # Đảm bảo auto_hide và click_through chỉ được bật 1 trong 2 (loại trừ lẫn nhau)
+        if self.config.get("click_through", False) and self.config.get("auto_hide", False):
+            self.config["auto_hide"] = False
+
         if self.config.get("click_through", False):
             self.apply_click_through(True)
 
         # First weather fetch
         if self.config.get("weather", {}).get("enabled", True):
             self.refresh_weather()
+
+        self._is_closing = False
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+        except Exception:
+            pass
 
         self.update_loop()
 
@@ -212,21 +229,28 @@ class FloatingClock:
         QuickTaskDialog(self)
 
     def toggle_autohide(self):
-        self.config["auto_hide"] = not self.config.get("auto_hide", False)
+        new_val = not self.config.get("auto_hide", False)
+        self.config["auto_hide"] = new_val
+
+        # Loại trừ tương hỗ: Nếu bật Tự làm mờ thì bắt buộc tắt Xuyên chuột
+        if new_val and self.config.get("click_through", False):
+            self.config["click_through"] = False
+            self.apply_click_through(False)
+
         self.save_config()
-        if not self.config["auto_hide"]:
+        if not new_val:
             self.root.attributes("-alpha", self.config.get("opacity", 0.90))
 
     def on_mouse_enter(self, event):
         if self.config.get("auto_hide", False):
-            # Nếu đang bật xuyên chuột (click_through), không làm sáng đồng hồ lên để tránh che khuất nội dung bên dưới
-            if not self.config.get("click_through", False):
-                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
 
     def on_mouse_leave(self, event):
+        # Không làm mờ nếu context menu đang mở để tránh xung đột compositing và giật giật DWM
+        if getattr(self, "_is_menu_open", False):
+            return
         if self.config.get("auto_hide", False):
-            if not self.config.get("click_through", False):
-                self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+            self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
 
     def toggle_mini_mode(self):
         self.config["mini_mode"] = not self.config.get("mini_mode", False)
@@ -623,8 +647,41 @@ class FloatingClock:
         elif self.current_mode == "pomodoro":
             self.toggle_pomodoro()
 
+    def _close_context_menu(self):
+        self._is_menu_open = False
+        try:
+            if self._current_menu:
+                self._current_menu.unpost()
+        except Exception:
+            pass
+        self._current_menu = None
+
     def show_context_menu(self, event):
-        menu = ContextMenuBuilder.build(self)
+        # 1. Đóng menu cũ nếu có
+        self._close_context_menu()
+
+        # 2. Đánh dấu đang mở menu để tránh on_mouse_leave làm giật alpha
+        self._is_menu_open = True
+
+        # 3. Tạo menu trực tiếp từ root để giữ nguyên focus chuẩn của Windows
+        menu = ContextMenuBuilder.build(self, parent=self.root)
+        self._current_menu = menu
+
+        def _on_menu_dismiss():
+            self._is_menu_open = False
+            self._current_menu = None
+            # Khôi phục độ trong suốt nếu rời chuột
+            if self.config.get("auto_hide", False) and not self.config.get("click_through", False):
+                try:
+                    px, py = self.root.winfo_pointerxy()
+                    rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+                    rw, rh = self.root.winfo_width(), self.root.winfo_height()
+                    if not (rx <= px <= rx + rw and ry <= py <= ry + rh):
+                        self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+                except Exception:
+                    pass
+
+        menu.bind("<Unmap>", lambda e: self.root.after(100, _on_menu_dismiss))
         menu.tk_popup(event.x_root, event.y_root)
 
     def open_control_center(self):
@@ -885,12 +942,20 @@ class FloatingClock:
         if not w_cfg.get("enabled", True):
             return
 
+        # Tránh mở chồng chéo nhiều dialog nếu người dùng chưa bấm tắt dialog cũ
+        if hasattr(self, "_hydration_dialog") and self._hydration_dialog:
+            try:
+                if self._hydration_dialog.winfo_exists():
+                    return
+            except Exception:
+                pass
+
         interval_sec = w_cfg.get("interval_min", 45) * 60
         if time.time() - self.last_water_remind_time >= interval_sec:
             self.last_water_remind_time = time.time()
             sound_mgr.play_water_chime()
             try:
-                HydrationReminderDialog(self.root)
+                self._hydration_dialog = HydrationReminderDialog(self.root)
             except Exception:
                 pass
 
@@ -919,7 +984,11 @@ class FloatingClock:
 
     # ---------------- 🔄 MASTER UPDATE LOOP ----------------
     def update_loop(self):
+        if getattr(self, "_is_closing", False):
+            return
         try:
+            if not self.root.winfo_exists():
+                return
             now = datetime.now()
             cur_sec = int(now.timestamp())
 
@@ -986,7 +1055,11 @@ class FloatingClock:
         except Exception:
             pass
         finally:
-            self.root.after(50, self.update_loop)
+            if not getattr(self, "_is_closing", False):
+                try:
+                    self.root.after(50, self.update_loop)
+                except Exception:
+                    pass
 
     def _render_clock_mode(self, now, mascot_prefix):
         show_sec = self.config.get("show_seconds", True)
@@ -1190,11 +1263,15 @@ class FloatingClock:
             else:
                 x = self.config["x"]
                 y = self.config["y"]
+            self.root.geometry(f"{req_w}x{req_h}+{x}+{y}")
         else:
+            cur_w = self.root.winfo_width()
+            cur_h = self.root.winfo_height()
             x = self.root.winfo_x()
             y = self.root.winfo_y()
-
-        self.root.geometry(f"{req_w}x{req_h}+{x}+{y}")
+            # CHỈ gọi geometry khi kích thước thực sự thay đổi để tránh Windows DWM composite lại liên tục gây giật giật!
+            if cur_w != req_w or cur_h != req_h:
+                self.root.geometry(f"{req_w}x{req_h}+{x}+{y}")
 
     def set_text_color(self, color_hex):
         self.config["text_color"] = color_hex
@@ -1223,19 +1300,23 @@ class FloatingClock:
         self.save_config()
 
     def toggle_click_through(self):
-        self.config["click_through"] = not self.config["click_through"]
-        self.apply_click_through(self.config["click_through"])
+        new_val = not self.config.get("click_through", False)
+        self.config["click_through"] = new_val
+
+        # Loại trừ tương hỗ: Nếu bật Xuyên chuột thì bắt buộc tắt Tự làm mờ
+        if new_val and self.config.get("auto_hide", False):
+            self.config["auto_hide"] = False
+            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+
+        self.apply_click_through(new_val)
         self.save_config()
 
     def apply_click_through(self, enable):
         try:
             hwnd = self.root.winfo_id()
             set_click_through(hwnd, enable)
-            # Đồng bộ độ trong suốt để người dùng dễ nhìn xuyên qua khi click-through
-            if enable and self.config.get("auto_hide", False):
-                self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
-            elif not enable and not self.config.get("auto_hide", False):
-                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            # Khôi phục độ mờ chuẩn theo cấu hình
+            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
         except Exception:
             pass
 
@@ -1280,15 +1361,37 @@ class FloatingClock:
         self.save_config()
 
     def quit_app(self):
+        self._is_closing = True
+        # 1. Ẩn cửa sổ ngay tức thì để không bị đơ trên màn hình
         try:
-            self.hotkey_mgr.stop()
+            self.root.withdraw()
         except Exception:
             pass
+
+        # 2. Lưu lại cấu hình và tọa độ trước khi hủy
+        try:
+            self.save_config()
+        except Exception:
+            pass
+
+        # 3. Tắt âm thanh nền và chuông
         try:
             self.focus_sound_mgr.stop()
             sound_mgr.stop_alarm()
         except Exception:
             pass
-        self.save_config()
-        self.root.destroy()
-        sys.exit(0)
+
+        # 4. Hủy đăng ký Global Hotkey Win32
+        try:
+            self.hotkey_mgr.stop()
+        except Exception:
+            pass
+
+        # 5. Hủy cửa sổ Tkinter
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
+        # 6. Thoát ngay lập tức (tránh Python runtime bị giật lag khi dọn dẹp các daemon thread)
+        os._exit(0)

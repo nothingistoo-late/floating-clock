@@ -15,6 +15,7 @@ from app.core.salary_calculator import get_payday_countdown_info
 class ControlCenterDialog(tk.Toplevel):
     def __init__(self, master_app, initial_tab=0):
         super().__init__(master_app.root)
+        self.withdraw()
         self.app = master_app
         self.title("🎛️ Bảng Điều Khiển & Thiết Lập Hệ Thống")
         self.attributes("-topmost", True)
@@ -29,6 +30,7 @@ class ControlCenterDialog(tk.Toplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
 
         self._create_ui(initial_tab)
+        self.deiconify()
 
     def _create_ui(self, initial_tab=0):
         style = ttk.Style(self)
