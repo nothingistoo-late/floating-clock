@@ -8,6 +8,7 @@ from app.services.sound_service import sound_mgr
 class AlertNotificationDialog(tk.Toplevel):
     def __init__(self, master, title_text, message_text, on_dismiss=None, on_snooze=None, on_restart=None):
         super().__init__(master)
+        self.withdraw()
         self.title(title_text)
         self.attributes("-topmost", True)
         self.configure(bg="#151922")
@@ -100,6 +101,8 @@ class AlertNotificationDialog(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.dismiss())
         self.bind("<Return>", lambda e: self.dismiss())
         self.bind("<space>", lambda e: self.dismiss())
+
+        self.deiconify()
 
         # Start visual flash effect
         self._flash()

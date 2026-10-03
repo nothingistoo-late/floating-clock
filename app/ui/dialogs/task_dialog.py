@@ -7,6 +7,7 @@ import tkinter as tk
 class QuickTaskDialog(tk.Toplevel):
     def __init__(self, master_app):
         super().__init__(master_app.root)
+        self.withdraw()
         self.app = master_app
         self.title("🎯 Mục Tiêu Quan Trọng Trong Ngày (Focus MIT)")
         self.attributes("-topmost", True)
@@ -79,6 +80,7 @@ class QuickTaskDialog(tk.Toplevel):
 
         self.bind("<Return>", lambda e: self.save_task())
         self.bind("<Escape>", lambda e: self.destroy())
+        self.deiconify()
 
     def save_task(self):
         txt = self.ent_task.get().strip()

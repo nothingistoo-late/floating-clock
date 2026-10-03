@@ -74,4 +74,12 @@ class GlobalHotkeyManager:
     def stop(self):
         self._running = False
         if self._thread_id:
-            user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)  # WM_QUIT
+            try:
+                user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)  # WM_QUIT
+            except Exception:
+                pass
+        if self._thread and self._thread.is_alive():
+            try:
+                self._thread.join(timeout=0.05)
+            except Exception:
+                pass

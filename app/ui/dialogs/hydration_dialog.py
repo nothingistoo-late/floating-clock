@@ -8,6 +8,7 @@ from app.messages import ALERT_MESSAGES
 class HydrationReminderDialog(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
+        self.withdraw()
         self.title(ALERT_MESSAGES["hydration_title"])
         self.attributes("-topmost", True)
         self.configure(bg="#0f172a")
@@ -54,3 +55,4 @@ class HydrationReminderDialog(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self.destroy())
         self.bind("<space>", lambda e: self.destroy())
+        self.deiconify()

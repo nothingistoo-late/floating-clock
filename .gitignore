@@ -31,3 +31,8 @@ clock_config.json
 *.bak
 scratch/
 
+# Agent guidelines & rules
+AGENTS.md
+.agents/
+
+
