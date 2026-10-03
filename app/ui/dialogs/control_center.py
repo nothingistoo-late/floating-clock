@@ -9,6 +9,7 @@ from app.constants import CITY_COORDINATES
 from app.core.autostart import is_start_with_windows, set_start_with_windows
 from app.services.sound_service import sound_mgr
 from app.messages import HOLIDAYS_DATA
+from app.core.salary_calculator import get_payday_countdown_info
 
 
 class ControlCenterDialog(tk.Toplevel):
@@ -486,9 +487,9 @@ class ControlCenterDialog(tk.Toplevel):
     # ---------------- 📅 TAB MILESTONES ----------------
     def _setup_milestones_tab(self):
         f = self.tab_milestones
-        tk.Label(f, text="📅 ĐẾM NGƯỢC NGÀY NHẬN LƯƠNG & CÁC DỊP LỄ LỚN", font=("Segoe UI", 11, "bold"), bg="#151a24", fg="#F59E0B").pack(anchor="w", pady=(0, 4))
+        tk.Label(f, text="📅 ĐẾM NGƯỢC NGÀY NHẬN LƯƠNG & CÁC DỊP LỄ QUAN TRỌNG", font=("Segoe UI", 11, "bold"), bg="#151a24", fg="#F59E0B").pack(anchor="w", pady=(0, 4))
 
-        self.tree_milestones = ttk.Treeview(f, columns=("name", "days", "date"), show="headings", height=9)
+        self.tree_milestones = ttk.Treeview(f, columns=("name", "days", "date"), show="headings", height=8)
         self.tree_milestones.heading("name", text="Dịp lễ / Cột mốc")
         self.tree_milestones.heading("days", text="Còn lại")
         self.tree_milestones.heading("date", text="Ngày diễn ra")
@@ -497,6 +498,72 @@ class ControlCenterDialog(tk.Toplevel):
         self.tree_milestones.column("date", width=120, anchor="center")
         self.tree_milestones.pack(fill="both", expand=True, pady=4)
 
+        # Form thêm dịp lễ mới
+        add_frame = tk.LabelFrame(f, text="➕ Thêm dịp lễ / Ngày kỷ niệm mới", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#38BDF8", padx=8, pady=6)
+        add_frame.pack(fill="x", pady=(4, 6))
+
+        tk.Label(add_frame, text="Tên dịp lễ:", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=0, column=0, sticky="w", padx=(0, 4))
+        self.ent_new_holiday_name = tk.Entry(add_frame, font=("Segoe UI", 9), width=22, bg="#1e2430", fg="#F8FAFC", insertbackground="#fff", relief="flat")
+        self.ent_new_holiday_name.grid(row=0, column=1, sticky="w", padx=(0, 10))
+
+        tk.Label(add_frame, text="Ngày:", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=0, column=2, sticky="w", padx=(0, 2))
+        self.spin_new_holiday_day = tk.Spinbox(add_frame, from_=1, to=31, width=3, font=("Segoe UI", 9), bg="#1e2430", fg="#00FFCC")
+        self.spin_new_holiday_day.delete(0, "end")
+        self.spin_new_holiday_day.insert(0, "1")
+        self.spin_new_holiday_day.grid(row=0, column=3, sticky="w", padx=(0, 8))
+
+        tk.Label(add_frame, text="Tháng:", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=0, column=4, sticky="w", padx=(0, 2))
+        self.spin_new_holiday_month = tk.Spinbox(add_frame, from_=1, to=12, width=3, font=("Segoe UI", 9), bg="#1e2430", fg="#00FFCC")
+        self.spin_new_holiday_month.delete(0, "end")
+        self.spin_new_holiday_month.insert(0, "1")
+        self.spin_new_holiday_month.grid(row=0, column=5, sticky="w", padx=(0, 10))
+
+        btn_add_hol = tk.Button(
+            add_frame,
+            text="➕ Thêm",
+            font=("Segoe UI", 8, "bold"),
+            bg="#059669",
+            fg="#FFFFFF",
+            relief="flat",
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=self._add_custom_holiday
+        )
+        btn_add_hol.grid(row=0, column=6, sticky="w")
+
+        # Nút quản lý
+        act_frame = tk.Frame(f, bg="#151a24")
+        act_frame.pack(fill="x", pady=(0, 4))
+
+        btn_del_hol = tk.Button(
+            act_frame,
+            text="🗑️ Xóa dịp lễ đã chọn",
+            font=("Segoe UI", 8, "bold"),
+            bg="#334155",
+            fg="#CBD5E1",
+            relief="flat",
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self._delete_selected_holiday
+        )
+        btn_del_hol.pack(side="left", padx=(0, 8))
+
+        btn_reset_hol = tk.Button(
+            act_frame,
+            text="🔄 Khôi phục lễ mặc định",
+            font=("Segoe UI", 8),
+            bg="#1e2430",
+            fg="#94A3B8",
+            relief="flat",
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self._reset_default_holidays
+        )
+        btn_reset_hol.pack(side="left")
+
         self._populate_milestones_list()
 
     def _populate_milestones_list(self):
@@ -504,17 +571,88 @@ class ControlCenterDialog(tk.Toplevel):
             self.tree_milestones.delete(item)
 
         now = datetime.now()
-        computed_events = []
-        for h in HOLIDAYS_DATA:
-            dt = datetime(now.year, h["month"], h["day"])
-            if dt < now:
-                dt = datetime(now.year + 1, h["month"], h["day"])
-            computed_events.append((h["name"], dt))
 
-        # Sort chronological
-        for name, dt in sorted(computed_events, key=lambda x: x[1]):
+        # 1. Cột mốc ngày nhận lương tiếp theo
+        payday = self.app.config.get("payday_day", 5)
+        p_days, p_date = get_payday_countdown_info(now, payday)
+        if p_date:
+            self.tree_milestones.insert("", "end", values=("💰 Ngày nhận lương tiếp theo", f"⏳ {p_days} ngày", p_date))
+
+        # 2. Danh sách các ngày lễ từ cấu hình
+        holidays = self.app.config.get("holidays", HOLIDAYS_DATA)
+        computed_events = []
+        for idx, h in enumerate(holidays):
+            try:
+                m = int(h.get("month", 1))
+                d = int(h.get("day", 1))
+                dt = datetime(now.year, m, d)
+                if dt < now:
+                    dt = datetime(now.year + 1, m, d)
+                computed_events.append((h.get("name", "Dịp lễ"), dt, idx))
+            except Exception:
+                pass
+
+        # Sort theo thứ tự thời gian gần nhất
+        for name, dt, idx in sorted(computed_events, key=lambda x: x[1]):
             diff_d = int(math.ceil((dt - now).total_seconds() / 86400.0))
-            self.tree_milestones.insert("", "end", values=(name, f"⏳ {diff_d} ngày", dt.strftime("%d/%m/%Y")))
+            self.tree_milestones.insert("", "end", values=(name, f"⏳ {diff_d} ngày", dt.strftime("%d/%m/%Y")), tags=(str(idx),))
+
+    def _add_custom_holiday(self):
+        name = self.ent_new_holiday_name.get().strip()
+        if not name:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập tên dịp lễ!", parent=self)
+            return
+
+        try:
+            d = int(self.spin_new_holiday_day.get().strip())
+            m = int(self.spin_new_holiday_month.get().strip())
+            if not (1 <= m <= 12 and 1 <= d <= 31):
+                raise ValueError("Ngày hoặc tháng không hợp lệ!")
+            datetime(2024, m, d)
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Ngày tháng không hợp lệ: {e}", parent=self)
+            return
+
+        holidays = list(self.app.config.get("holidays", HOLIDAYS_DATA))
+        holidays.append({"name": name, "month": m, "day": d})
+        self.app.config["holidays"] = holidays
+        self.app.save_config()
+        self._populate_milestones_list()
+        self.ent_new_holiday_name.delete(0, "end")
+        messagebox.showinfo("Thành công", f"Đã thêm dịp lễ: {name} ({d:02d}/{m:02d})", parent=self)
+
+    def _delete_selected_holiday(self):
+        selected = self.tree_milestones.selection()
+        if not selected:
+            messagebox.showwarning("Cảnh báo", "Vui lòng bấm chọn một dịp lễ trong bảng để xóa!", parent=self)
+            return
+
+        item_vals = self.tree_milestones.item(selected[0], "values")
+        if not item_vals:
+            return
+
+        name_to_del = item_vals[0]
+        if "Ngày nhận lương" in name_to_del:
+            messagebox.showinfo("Thông báo", "Ngày nhận lương được cấu hình tại tab 'Tiền Lương', không thể xóa ở đây.", parent=self)
+            return
+
+        if not messagebox.askyesno("Xác nhận", f"Bạn có chắc muốn xóa dịp lễ '{name_to_del}'?", parent=self):
+            return
+
+        holidays = list(self.app.config.get("holidays", HOLIDAYS_DATA))
+        new_holidays = [h for h in holidays if h.get("name") != name_to_del]
+        self.app.config["holidays"] = new_holidays
+        self.app.save_config()
+        self._populate_milestones_list()
+        messagebox.showinfo("Thành công", f"Đã xóa dịp lễ '{name_to_del}'!", parent=self)
+
+    def _reset_default_holidays(self):
+        if not messagebox.askyesno("Xác nhận", "Khôi phục lại danh sách các dịp lễ lớn mặc định của Việt Nam?", parent=self):
+            return
+        self.app.config["holidays"] = list(HOLIDAYS_DATA)
+        self.app.save_config()
+        self._populate_milestones_list()
+        messagebox.showinfo("Thành công", "Đã khôi phục danh sách dịp lễ mặc định!", parent=self)
 
     # ---------------- ⏳ TAB TIMER ----------------
     def _setup_timer_tab(self):

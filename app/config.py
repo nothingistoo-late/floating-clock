@@ -96,6 +96,14 @@ DEFAULT_CONFIG = {
     },
     # Milestone & Payday Countdown (Đếm ngược ngày lương & Lễ)
     "payday_day": 5,
+    "holidays": [
+        {"name": "🎆 Tết Dương Lịch", "month": 1, "day": 1},
+        {"name": "🧧 Tết Nguyên Đán (Âm Lịch)", "month": 2, "day": 17},
+        {"name": "👑 Giỗ Tổ Hùng Vương (10/3 Âm)", "month": 4, "day": 26},
+        {"name": "🇻🇳 Thống Nhất & Lao Động (30/4 - 1/5)", "month": 4, "day": 30},
+        {"name": "⭐ Quốc Khánh Việt Nam (2/9)", "month": 9, "day": 2},
+        {"name": "🎄 Lễ Giáng Sinh (Noel 25/12)", "month": 12, "day": 25}
+    ],
     # System Monitor (CPU & RAM)
     "show_sys_monitor": False,
     # Auto-Hide on edge (Tự thu gọn khi rời chuột)

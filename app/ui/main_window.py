@@ -219,11 +219,14 @@ class FloatingClock:
 
     def on_mouse_enter(self, event):
         if self.config.get("auto_hide", False):
-            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            # Nếu đang bật xuyên chuột (click_through), không làm sáng đồng hồ lên để tránh che khuất nội dung bên dưới
+            if not self.config.get("click_through", False):
+                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
 
     def on_mouse_leave(self, event):
         if self.config.get("auto_hide", False):
-            self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+            if not self.config.get("click_through", False):
+                self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
 
     def toggle_mini_mode(self):
         self.config["mini_mode"] = not self.config.get("mini_mode", False)
@@ -1228,6 +1231,11 @@ class FloatingClock:
         try:
             hwnd = self.root.winfo_id()
             set_click_through(hwnd, enable)
+            # Đồng bộ độ trong suốt để người dùng dễ nhìn xuyên qua khi click-through
+            if enable and self.config.get("auto_hide", False):
+                self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+            elif not enable and not self.config.get("auto_hide", False):
+                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
         except Exception:
             pass
 

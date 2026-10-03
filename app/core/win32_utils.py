@@ -10,13 +10,16 @@ user32 = ctypes.windll.user32
 
 
 def set_click_through(hwnd, enable=True):
-    """Bật/tắt tính năng xuyên chuột (WS_EX_TRANSPARENT) cho cửa sổ"""
+    """Bật/tắt tính năng xuyên chuột (WS_EX_TRANSPARENT) cho cửa sổ (cả wrapper và top-level)"""
     try:
-        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        if enable:
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
-        else:
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT)
+        top_hwnd = user32.GetAncestor(hwnd, 2) or user32.GetParent(hwnd) or hwnd
+        for h in set([hwnd, top_hwnd]):
+            if h:
+                style = user32.GetWindowLongW(h, GWL_EXSTYLE)
+                if enable:
+                    user32.SetWindowLongW(h, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
+                else:
+                    user32.SetWindowLongW(h, GWL_EXSTYLE, (style | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT)
     except Exception:
         pass
 
