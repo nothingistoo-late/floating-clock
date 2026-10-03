@@ -4,6 +4,7 @@ Salary calculation and Payday Countdown Engine
 import calendar
 import math
 from datetime import datetime, timedelta
+from app.messages import SALARY_TEXTS
 
 
 def get_payday_countdown_info(now, payday_day=5):
@@ -163,21 +164,23 @@ def calculate_salary_info(now, config, get_today_departure_func):
     is_hidden = sal_cfg.get("hidden", False)
 
     if is_hidden:
-        daily_str = "💸 Ngày: •••••• đ"
-        month_str = f"📅 {cycle_label}: •••••• đ"
+        daily_str = SALARY_TEXTS["hidden_daily"]
+        month_str = SALARY_TEXTS["hidden_month"].format(cycle_label=cycle_label)
     elif is_weekend:
-        daily_str = "💸 Ngày: Nghỉ cuối tuần 🌴"
+        daily_str = SALARY_TEXTS["weekend"]
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
     elif now < dt_start:
-        daily_str = f"💸 Ngày: Chuẩn bị làm việc ({st_str[:5]}) ☕"
+        daily_str = SALARY_TEXTS["before_work"].format(start_time=st_str[:5])
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
     elif is_lunch:
         pct_day = (worked_hours / work_hours) * 100.0 if work_hours > 0 else 0.0
-        daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.1f}%) • 🍱 Giờ nghỉ trưa"
+        lunch_txt = SALARY_TEXTS["lunch_break"]
+        daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.1f}%) • {lunch_txt}"
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
     elif now >= dt_end:
         pct_day = 100.0
-        daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.0f}%) • Đã tan làm 🎉"
+        after_txt = SALARY_TEXTS["after_work"]
+        daily_str = f"💸 Ngày: {int(daily_earned):,} đ ({pct_day:.0f}%) • {after_txt}"
         month_str = f"📅 {cycle_label}: {int(month_earned):,} đ ({pct_month:.1f}%)".replace(",", ".")
     else:
         pct_day = (worked_hours / work_hours) * 100.0 if work_hours > 0 else 0.0

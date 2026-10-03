@@ -21,6 +21,7 @@ from app.ui.dialogs.control_center import ControlCenterDialog
 from app.ui.dialogs.hydration_dialog import HydrationReminderDialog
 from app.ui.dialogs.task_dialog import QuickTaskDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
+from app.messages import ALERT_MESSAGES
 
 
 class FloatingClock:
@@ -619,8 +620,8 @@ class FloatingClock:
 
         self.alert_dialog = AlertNotificationDialog(
             self.root,
-            "⏳ Hết giờ đếm ngược!",
-            "⏳ ĐÃ HẾT GIỜ ĐẾM NGƯỢC!",
+            ALERT_MESSAGES["timer_finished_title"],
+            ALERT_MESSAGES["timer_finished_body"],
             on_dismiss=lambda: None,
             on_restart=lambda: self.start_timer()
         )
@@ -689,24 +690,24 @@ class FloatingClock:
             self.pomo_cycle_count += 1
             sound_mgr.play_pomo_break()
             if self.pomo_cycle_count % self.config.get("pomo_cycles", 4) == 0:
-                msg = f"🍅 Hoàn thành phiên #{self.pomo_cycle_count}! Đến lúc NGHỈ DÀI 15 phút rồi."
+                msg = ALERT_MESSAGES["pomo_long_break_body"].format(cycle=self.pomo_cycle_count)
                 is_long = True
             else:
-                msg = f"🍅 Hoàn thành tập trung! Đến lúc NGHỈ NGẮN 5 phút thư giãn."
+                msg = ALERT_MESSAGES["pomo_short_break_body"]
                 is_long = False
 
             AlertNotificationDialog(
                 self.root,
-                "🍅 Pomodoro - Giờ nghỉ ngơi",
+                ALERT_MESSAGES["pomo_work_complete_title"],
                 msg,
                 on_dismiss=lambda: self.start_pomodoro_break(is_long)
             )
         else:
             sound_mgr.play_pomo_break()
-            msg = "⚡ Hết giờ nghỉ! Bạn đã sẵn sàng cho phiên tập trung tiếp theo chưa?"
+            msg = ALERT_MESSAGES["pomo_break_complete_body"]
             AlertNotificationDialog(
                 self.root,
-                "🍅 Pomodoro - Bắt đầu làm việc",
+                ALERT_MESSAGES["pomo_break_complete_title"],
                 msg,
                 on_dismiss=lambda: self.start_pomodoro_work()
             )
@@ -737,10 +738,11 @@ class FloatingClock:
         def snooze_action():
             snooze_dt = datetime.now() + timedelta(minutes=5)
             snooze_time = snooze_dt.strftime("%H:%M")
+            snooze_lbl = ALERT_MESSAGES["alarm_snooze_label"].format(label=label_txt)
             self.config.setdefault("alarms", []).append({
                 "id": int(time.time()),
                 "time": snooze_time,
-                "label": f"(Báo lại 5p) {label_txt}",
+                "label": snooze_lbl,
                 "enabled": True,
                 "repeat": False
             })
@@ -748,8 +750,8 @@ class FloatingClock:
 
         AlertNotificationDialog(
             self.root,
-            f"⏰ Báo thức: {time_txt}",
-            f"⏰ ĐÃ ĐẾN GIỜ BÁO THỨC!\n\n[{time_txt}] {label_txt}",
+            ALERT_MESSAGES["alarm_title"].format(time_str=time_txt),
+            ALERT_MESSAGES["alarm_body"].format(time_str=time_txt, label=label_txt),
             on_dismiss=lambda: None,
             on_snooze=snooze_action
         )
@@ -785,8 +787,8 @@ class FloatingClock:
                 lbl = self.config.get("target_time_label", "Tan làm")
                 AlertNotificationDialog(
                     self.root,
-                    f"🎯 Đã đến mốc giờ: {tgt_str[:5]}",
-                    f"🎯 ĐÃ ĐẾN MỐC THỜI GIAN: {tgt_str[:5]}\n\n🎉 {lbl} 🎉\nChúc fen buổi chiều/tối tràn ngập niềm vui!",
+                    ALERT_MESSAGES["target_reached_title"].format(time_str=tgt_str[:5]),
+                    ALERT_MESSAGES["target_reached_body"].format(time_str=tgt_str[:5], label=lbl),
                     on_dismiss=lambda: None
                 )
         except Exception:

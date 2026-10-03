@@ -8,6 +8,7 @@ from tkinter import colorchooser, messagebox, ttk
 from app.constants import CITY_COORDINATES
 from app.core.autostart import is_start_with_windows, set_start_with_windows
 from app.services.sound_service import sound_mgr
+from app.messages import HOLIDAYS_DATA
 
 
 class ControlCenterDialog(tk.Toplevel):
@@ -522,22 +523,12 @@ class ControlCenterDialog(tk.Toplevel):
             self.tree_milestones.delete(item)
 
         now = datetime.now()
-        # Tính toán ngày tiếp theo của từng dịp lễ chuẩn xác
-        holidays_data = [
-            ("🎆 Tết Dương Lịch", 1, 1),
-            ("🧧 Tết Nguyên Đán (Âm Lịch)", 2, 17),
-            ("👑 Giỗ Tổ Hùng Vương (10/3 Âm)", 4, 26),
-            ("🇻🇳 Thống Nhất & Lao Động (30/4 - 1/5)", 4, 30),
-            ("⭐ Quốc Khánh Việt Nam (2/9)", 9, 2),
-            ("🎄 Lễ Giáng Sinh (Noel 25/12)", 12, 25)
-        ]
-
         computed_events = []
-        for name, m, d in holidays_data:
-            dt = datetime(now.year, m, d)
+        for h in HOLIDAYS_DATA:
+            dt = datetime(now.year, h["month"], h["day"])
             if dt < now:
-                dt = datetime(now.year + 1, m, d)
-            computed_events.append((name, dt))
+                dt = datetime(now.year + 1, h["month"], h["day"])
+            computed_events.append((h["name"], dt))
 
         # Sort chronological
         for name, dt in sorted(computed_events, key=lambda x: x[1]):

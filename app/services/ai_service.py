@@ -6,7 +6,7 @@ import random
 import ssl
 import threading
 import urllib.request
-from app.constants import DEFAULT_QUOTES
+from app.messages import AI_PROMPT_TEMPLATE, MOTIVATIONAL_QUOTES
 
 
 class AIManager:
@@ -64,11 +64,7 @@ class AIManager:
     def _call_gemini(self, api_key, context_tag):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json", "User-Agent": "FloatingClock/2.1"}
-        prompt = (
-            "Hãy tạo DUY NHẤT 1 câu động viên làm việc ngắn gọn (dưới 15 từ), cực kỳ hài hước, mang đậm phong cách GenZ Việt Nam "
-            "(sử dụng linh hoạt từ ngữ trend như: slay, flex, healing, đỉnh nóc kịch trần, ting ting, chill, overthinking, hết nước chấm, bro, fen, gét gô...) "
-            f"phù hợp với ngữ cảnh: {context_tag}. Chỉ trả về duy nhất nội dung câu nói kèm icon biểu cảm (emoji), không thêm giải thích hay dấu ngoặc kép."
-        )
+        prompt = AI_PROMPT_TEMPLATE.format(context_tag=context_tag)
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -104,11 +100,7 @@ class AIManager:
             "Authorization": f"Bearer {api_key}",
             "User-Agent": "FloatingClock/2.1"
         }
-        prompt = (
-            "Hãy tạo DUY NHẤT 1 câu động viên làm việc ngắn gọn (dưới 15 từ), cực kỳ hài hước, mang đậm phong cách GenZ Việt Nam "
-            "(sử dụng linh hoạt từ ngữ trend như: slay, flex, healing, đỉnh nóc kịch trần, ting ting, chill, overthinking, hết nước chấm, bro, fen, gét gô...) "
-            f"phù hợp với ngữ cảnh: {context_tag}. Chỉ trả về duy nhất nội dung câu nói kèm icon biểu cảm (emoji), không thêm giải thích hay dấu ngoặc kép."
-        )
+        prompt = AI_PROMPT_TEMPLATE.format(context_tag=context_tag)
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -127,9 +119,10 @@ class AIManager:
             return text.strip('"\' \n\r')
 
     def get_offline_quote(self, context_tag):
-        if context_tag in DEFAULT_QUOTES and DEFAULT_QUOTES[context_tag]:
-            return random.choice(DEFAULT_QUOTES[context_tag])
+        if context_tag in MOTIVATIONAL_QUOTES and MOTIVATIONAL_QUOTES[context_tag]:
+            return random.choice(MOTIVATIONAL_QUOTES[context_tag])
         all_q = []
-        for v in DEFAULT_QUOTES.values():
+        for v in MOTIVATIONAL_QUOTES.values():
             all_q.extend(v)
         return random.choice(all_q) if all_q else "🚀 Cố lên fen ơi, slay hết mình nào!"
+
