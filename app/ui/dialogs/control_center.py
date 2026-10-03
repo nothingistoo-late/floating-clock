@@ -276,28 +276,20 @@ class ControlCenterDialog(tk.Toplevel):
         self.ent_sal_hours.insert(0, str(sal_cfg.get("work_hours", 8.0)))
         self.ent_sal_hours.grid(row=2, column=1, sticky="w", padx=10, pady=4)
 
-        tk.Label(grid_f, text="Nghỉ trưa (Bắt đầu):", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=3, column=0, sticky="w", pady=4)
-        self.ent_sal_lunch_start = tk.Entry(grid_f, font=("Segoe UI", 9), width=16, bg="#1e2430", fg="#FCD34D", insertbackground="#fff", relief="flat")
-        self.ent_sal_lunch_start.insert(0, work_cfg.get("lunch_start", "12:00"))
-        self.ent_sal_lunch_start.grid(row=3, column=1, sticky="w", padx=10, pady=4)
-
-        tk.Label(grid_f, text="Nghỉ trưa (Kết thúc):", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=4, column=0, sticky="w", pady=4)
-        self.ent_sal_lunch_end = tk.Entry(grid_f, font=("Segoe UI", 9), width=16, bg="#1e2430", fg="#FCD34D", insertbackground="#fff", relief="flat")
-        self.ent_sal_lunch_end.insert(0, work_cfg.get("lunch_end", "13:15"))
-        self.ent_sal_lunch_end.grid(row=4, column=1, sticky="w", padx=10, pady=4)
-
-        tk.Label(grid_f, text="Chu kỳ tính lương tháng:", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#38BDF8").grid(row=5, column=0, sticky="w", pady=4)
+        tk.Label(grid_f, text="Chu kỳ tính lương tháng:", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#38BDF8").grid(row=3, column=0, sticky="w", pady=4)
         cycle_box = tk.Frame(grid_f, bg="#151a24")
-        cycle_box.grid(row=5, column=1, sticky="w", padx=10, pady=4)
+        cycle_box.grid(row=3, column=1, sticky="w", padx=10, pady=4)
         self.var_sal_cycle = tk.StringVar(value=sal_cfg.get("calc_cycle", "calendar_month"))
         tk.Radiobutton(cycle_box, text="Tháng dương (1 - cuối tháng)", variable=self.var_sal_cycle, value="calendar_month", font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC", selectcolor="#1e2430", activebackground="#151a24").pack(anchor="w")
         tk.Radiobutton(cycle_box, text="Chu kỳ ngày nhận lương (vd: từ mùng 5/10 đến 5/11)", variable=self.var_sal_cycle, value="payday_cycle", font=("Segoe UI", 8), bg="#151a24", fg="#38BDF8", selectcolor="#1e2430", activebackground="#151a24").pack(anchor="w")
 
-        tk.Label(grid_f, text="Ngày nhận lương hàng tháng:", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=6, column=0, sticky="w", pady=4)
+        tk.Label(grid_f, text="Ngày nhận lương hàng tháng:", font=("Segoe UI", 9), bg="#151a24", fg="#F8FAFC").grid(row=4, column=0, sticky="w", pady=4)
         self.spin_sal_payday = tk.Spinbox(grid_f, from_=1, to=31, width=6, font=("Segoe UI", 9), bg="#1e2430", fg="#FCD34D")
         self.spin_sal_payday.delete(0, "end")
         self.spin_sal_payday.insert(0, str(self.app.config.get("payday_day", 5)))
-        self.spin_sal_payday.grid(row=6, column=1, sticky="w", padx=10, pady=4)
+        self.spin_sal_payday.grid(row=4, column=1, sticky="w", padx=10, pady=4)
+
+        tk.Label(grid_f, text="💡 Giờ nghỉ trưa được quản lý tại tab 'Giờ làm & Tan làm'", font=("Segoe UI", 8, "italic"), bg="#151a24", fg="#94A3B8").grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 4))
 
         opt_f = tk.Frame(f, bg="#151a24")
         opt_f.pack(fill="x", pady=6)
@@ -342,15 +334,8 @@ class ControlCenterDialog(tk.Toplevel):
             mon = float(self.ent_salary_monthly.get().replace(".", "").replace(",", "").strip())
             days = int(self.ent_sal_days.get().strip())
             hrs = float(self.ent_sal_hours.get().strip())
-            ls = self.ent_sal_lunch_start.get().strip()
-            le = self.ent_sal_lunch_end.get().strip()
             cyc = self.var_sal_cycle.get()
             task_txt = self.ent_focus_task.get().strip()
-
-            for val, name in [(ls, "Nghỉ trưa bắt đầu"), (le, "Nghỉ trưa kết thúc")]:
-                parts = val.split(":")
-                if len(parts) != 2 or not (0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
-                    raise ValueError(f"Giờ {name} không đúng định dạng HH:MM!")
 
             p_val = int(self.spin_sal_payday.get().strip())
             if not (1 <= p_val <= 31):
@@ -366,10 +351,6 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["salary"]["show_daily"] = self.var_sal_show_daily.get()
             self.app.config["salary"]["show_monthly"] = self.var_sal_show_monthly.get()
             self.app.config["salary"]["hidden"] = self.var_sal_hidden.get()
-
-            self.app.config.setdefault("work_departure", {})
-            self.app.config["work_departure"]["lunch_start"] = ls
-            self.app.config["work_departure"]["lunch_end"] = le
 
             self.app.config.setdefault("focus_task", {})
             self.app.config["focus_task"]["text"] = task_txt
