@@ -761,8 +761,8 @@ class FloatingClock:
             bubble.deiconify()
             self._mascot_bubble = bubble
 
-            # Tự động đóng bong bóng thoại sau 2.2 giây (hủy bỏ timer cũ nếu người dùng click liên tiếp)
-            self._bubble_timer = self.root.after(2200, self._close_mascot_bubble)
+            # Tự động đóng bong bóng thoại sau 3.0 giây (hủy bỏ timer cũ nếu người dùng click liên tiếp)
+            self._bubble_timer = self.root.after(3000, self._close_mascot_bubble)
         except Exception:
             pass
 
@@ -774,23 +774,43 @@ class FloatingClock:
         self._last_mascot_click_ts = now_ts
 
         sound_mgr.play_tick()
-        # Kích hoạt trạng thái vui sướng nhảy nhót trong 2 giây
-        self._mascot_happy_until = time.time() + 2.0
+        # Kích hoạt trạng thái vui sướng nhảy nhót trong 3.0 giây (đúng 2 chu kỳ nhảy hoàn chỉnh)
+        self._mascot_happy_until = time.time() + 3.0
         meow = self.mascot_mgr.get_random_meow()
         self.show_mascot_speech_bubble(meow)
         return "break"
 
+    def is_near_departure_time(self, now):
+        try:
+            today_dep, _ = self.get_today_departure_info(now)
+            today_str = now.strftime("%Y-%m-%d")
+            dt_dep = datetime.strptime(f"{today_str} {today_dep}", "%Y-%m-%d %H:%M:%S")
+            diff_min = (dt_dep - now).total_seconds() / 60.0
+            # Chỉ coi là sắp tan làm trong vòng 30 phút trước giờ tan làm
+            return 0 <= diff_min <= 30
+        except Exception:
+            return False
+
+    def set_mascot_action(self, action):
+        self.config["mascot_action"] = action
+        self.save_config()
+        self.update_mascot_sprite(force=True)
+
     def update_mascot_sprite(self, force=False):
         if not self.config.get("show_mascot", True) or self.config.get("mini_mode", False):
             return
-        now = datetime.now()
-        is_leaving_soon = (self.get_current_context_tag(now) in ("leaving_soon", "saturday"))
-        
-        # Nếu vừa được click cưng nựng, mèo chuyển sang nhảy nhót vui sướng
+
+        # Nếu vừa được click cưng nựng, mèo chuyển sang nhảy nhót vui sướng trong 3 giây
         if getattr(self, "_mascot_happy_until", 0) > time.time():
             state = "leaving"
         else:
-            state = self.mascot_mgr.get_state(self.current_mode, self.pomo_running, is_leaving_soon)
+            configured_action = self.config.get("mascot_action", "auto")
+            if configured_action in ("idle", "work", "leaving"):
+                state = configured_action
+            else:
+                now = datetime.now()
+                is_leaving_soon = self.is_near_departure_time(now)
+                state = self.mascot_mgr.get_state(self.current_mode, self.pomo_running, is_leaving_soon)
 
         now_ts = time.time()
         img = self.mascot_mgr.get_animated_sprite(state, now_ts)

@@ -30,9 +30,9 @@ class MascotManager:
         self.mascot_dir = next((d for d in dir_candidates if os.path.exists(d)), dir_candidates[0])
         self.frames = {"idle": [], "work": [], "leaving": []}
         self.intervals = {
-            "work": 0.14,      # Gõ phím lách cách liên hoàn cực mượt (chu kỳ 6 frame ~0.84s)
-            "leaving": 0.16,   # Nhảy chân sáo hào hứng vui vẻ (chu kỳ 6 frame ~0.96s)
-            "idle": 0.28,      # Thở phập phồng & chớp mắt nhịp nhàng (chu kỳ 6 frame ~1.68s)
+            "idle": 0.33,      # Thở & chớp mắt nhịp nhàng (chu kỳ 6 frame ~2.0s)
+            "work": 0.33,      # Gõ phím cày cuốc đều tay (chu kỳ 6 frame ~2.0s)
+            "leaving": 0.33,   # Nhảy chân sáo & ăn mừng bay bổng (chu kỳ 6 frame ~2.0s)
         }
         self.current_state = "idle"
         self.current_frame_idx = 0
