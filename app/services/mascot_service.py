@@ -5,7 +5,7 @@ import os
 import random
 import tkinter as tk
 from datetime import datetime
-from app.config import APP_DIR
+from app.config import APP_DIR, BUNDLE_DIR
 
 
 class MascotManager:
@@ -24,6 +24,7 @@ class MascotManager:
         self.root = root
         self.config = config
         dir_candidates = [
+            os.path.join(BUNDLE_DIR, "app", "assets", "mascot"),
             os.path.join(APP_DIR, "app", "assets", "mascot"),
             os.path.join(APP_DIR, "assets", "mascot"),
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "mascot"),

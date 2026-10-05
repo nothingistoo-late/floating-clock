@@ -17,8 +17,9 @@ ENV/
 # PyInstaller & Build artifacts
 build/
 dist/
-*.spec
 _ambient_loop.wav
+app/bin/
+*.exe
 
 # IDE & Editor
 .vscode/

@@ -568,14 +568,24 @@ class FloatingClock:
 
     def toggle_focus_sound(self):
         st = self.config.get("focus_sound", {}).get("sound_type", "rain")
-        self.focus_sound_mgr.toggle(st)
+        custom_url = self.config.get("focus_sound", {}).get("custom_url", "")
+        self.focus_sound_mgr.toggle(
+            sound_type=st,
+            custom_url=custom_url if st == "custom" else None,
+            callback=lambda ok, msg: self.root.after_idle(self.update_extra_info_visibility)
+        )
         self.update_extra_info_visibility()
 
     def select_and_play_sound(self, sound_type):
         self.config.setdefault("focus_sound", {})["sound_type"] = sound_type
         self.config["focus_sound"]["enabled"] = True
         self.save_config()
-        self.focus_sound_mgr.play(sound_type)
+        custom_url = self.config.get("focus_sound", {}).get("custom_url", "")
+        self.focus_sound_mgr.play(
+            sound_type=sound_type,
+            custom_url=custom_url if sound_type == "custom" else None,
+            callback=lambda ok, msg: self.root.after_idle(self.update_extra_info_visibility)
+        )
         self.update_extra_info_visibility()
 
     def refresh_weather(self):
@@ -625,7 +635,11 @@ class FloatingClock:
         if self.focus_sound_mgr.is_playing:
             snd_info = self.focus_sound_mgr.SOUND_TYPES.get(self.focus_sound_mgr.current_sound, {})
             icon = snd_info.get("icon", "🎧")
-            self.sound_status_label.configure(text=f"Playing: {icon} {snd_info.get('name', '')}")
+            title_txt = self.focus_sound_mgr.current_title or snd_info.get("name", "Âm thanh tập trung")
+            # Cắt ngắn nếu tiêu đề quá dài
+            if len(title_txt) > 28:
+                title_txt = title_txt[:25] + "..."
+            self.sound_status_label.configure(text=f"Playing: {icon} {title_txt}")
             self.sound_status_label.pack(anchor="center", pady=(1, 0))
         else:
             self.sound_status_label.pack_forget()
