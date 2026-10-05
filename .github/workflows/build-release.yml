@@ -1,0 +1,66 @@
+name: 🚀 Build & Release Windows App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 📦 Build Executable & Setup Installer
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 📦 Install PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+
+      - name: 🌐 Download yt-dlp binary for audio streaming
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "app\bin"
+          curl.exe -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -o "app\bin\yt-dlp.exe"
+
+      - name: 🔨 Build Standalone EXE with PyInstaller
+        run: |
+          pyinstaller FloatingClock.spec --clean --noconfirm
+
+      - name: 🛠️ Install Inno Setup
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: 📦 Compile Windows Setup Installer (.exe)
+        shell: powershell
+        run: |
+          $ver = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v1.0.0" }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" installer\installer.iss
+
+      - name: 🗜️ Create Portable ZIP Package
+        shell: powershell
+        run: |
+          $ver = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v1.0.0" }
+          Compress-Archive -Path "dist\FloatingClock.exe" -DestinationPath "dist\FloatingClock_Portable_$ver.zip" -Force
+
+      - name: 🚀 Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: 🌟 Floating Clock ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/FloatingClock_Setup_*.exe
+            dist/FloatingClock_Portable_*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

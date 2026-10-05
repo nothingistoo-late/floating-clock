@@ -433,14 +433,19 @@ class ControlCenterDialog(tk.Toplevel):
         f = self.tab_focus_sound
         snd_cfg = self.app.config.get("focus_sound", {})
 
-        tk.Label(f, text="🎧 ÂM THANH TẬP TRUNG & WHITE NOISE", font=("Segoe UI", 11, "bold"), bg="#151a24", fg="#A855F7").pack(anchor="w", pady=(0, 4))
-        tk.Label(f, text="Giúp thư giãn não bộ, chặn tiếng ồn xung quanh và tăng năng suất làm việc.", font=("Segoe UI", 8), bg="#151a24", fg="#94A3B8").pack(anchor="w", pady=(0, 10))
+        tk.Label(f, text="🎧 ÂM THANH TẬP TRUNG & NHẠC NỀN CHILL", font=("Segoe UI", 11, "bold"), bg="#151a24", fg="#A855F7").pack(anchor="w", pady=(0, 2))
+        tk.Label(f, text="Hỗ trợ âm thanh tự nhiên êm dịu, đài Lofi trực tuyến hoặc dán link YouTube/TikTok/MP3 để phát nền.", font=("Segoe UI", 8), bg="#151a24", fg="#94A3B8").pack(anchor="w", pady=(0, 8))
 
         self.var_sound_type = tk.StringVar(value=snd_cfg.get("sound_type", "rain"))
 
-        for s_key, s_data in self.app.focus_sound_mgr.SOUND_TYPES.items():
+        grid_sounds = tk.Frame(f, bg="#151a24")
+        grid_sounds.pack(fill="x", pady=(0, 4))
+
+        sound_items = list(self.app.focus_sound_mgr.SOUND_TYPES.items())
+        # Chia 2 cột cho danh sách âm thanh
+        for idx, (s_key, s_data) in enumerate(sound_items):
             r = tk.Radiobutton(
-                f,
+                grid_sounds,
                 text=f"{s_data['icon']}  {s_data['name']}",
                 variable=self.var_sound_type,
                 value=s_key,
@@ -451,40 +456,181 @@ class ControlCenterDialog(tk.Toplevel):
                 activebackground="#151a24",
                 command=self._on_sound_type_changed
             )
-            r.pack(anchor="w", pady=2)
+            r.grid(row=idx // 2, column=idx % 2, sticky="w", padx=6, pady=2)
+
+        # Khung nhập URL tùy chỉnh (YouTube / TikTok / Radio)
+        url_frame = tk.LabelFrame(f, text="🔗 Link tùy chỉnh (YouTube / TikTok / Radio Stream / MP3):", font=("Segoe UI", 8, "bold"), bg="#151a24", fg="#38BDF8", padx=8, pady=4)
+        url_frame.pack(fill="x", pady=(6, 4))
+
+        url_input_row = tk.Frame(url_frame, bg="#151a24")
+        url_input_row.pack(fill="x", pady=2)
+
+        self.ent_custom_sound_url = tk.Entry(
+            url_input_row,
+            font=("Segoe UI", 9),
+            bg="#1e2430",
+            fg="#00FFCC",
+            insertbackground="#00FFCC",
+            relief="flat"
+        )
+        saved_url = snd_cfg.get("custom_url", "")
+        self.ent_custom_sound_url.insert(0, saved_url)
+        self.ent_custom_sound_url.pack(side="left", fill="x", expand=True, padx=(0, 6), ipady=3)
+
+        def _paste_clipboard():
+            try:
+                clip = self.clipboard_get()
+                self.ent_custom_sound_url.delete(0, "end")
+                self.ent_custom_sound_url.insert(0, clip.strip())
+                self.var_sound_type.set("custom")
+                self._on_sound_type_changed()
+            except Exception:
+                pass
+
+        btn_paste = tk.Button(
+            url_input_row,
+            text="📋 Dán link",
+            font=("Segoe UI", 8, "bold"),
+            bg="#334155",
+            fg="#F8FAFC",
+            relief="flat",
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            command=_paste_clipboard
+        )
+        btn_paste.pack(side="right")
+
+        # Nút gợi ý preset nhanh
+        preset_row = tk.Frame(url_frame, bg="#151a24")
+        preset_row.pack(fill="x", pady=(2, 2))
+        tk.Label(preset_row, text="Gợi ý đài:", font=("Segoe UI", 8), bg="#151a24", fg="#94A3B8").pack(side="left", padx=(0, 6))
+
+        def _set_preset_url(url_val):
+            self.ent_custom_sound_url.delete(0, "end")
+            self.ent_custom_sound_url.insert(0, url_val)
+            self.var_sound_type.set("custom")
+            self._on_sound_type_changed()
+
+        presets = [
+            ("📻 Lofi Hip Hop", "https://stream.zeno.fm/f3wvbbqmdg8uv"),
+            ("🎹 Chill Piano", "https://stream.zeno.fm/0r0xa792kwzuv"),
+            ("☕ Jazz Cafe", "https://stream.nightwaveplaza.com/plaza.mp3"),
+        ]
+        for p_label, p_url in presets:
+            btn_p = tk.Button(
+                preset_row,
+                text=p_label,
+                font=("Segoe UI", 7, "bold"),
+                bg="#1e2430",
+                fg="#38BDF8",
+                activebackground="#2563eb",
+                activeforeground="#fff",
+                relief="flat",
+                padx=4,
+                pady=1,
+                cursor="hand2",
+                command=lambda u=p_url: _set_preset_url(u)
+            )
+            btn_p.pack(side="left", padx=2)
+
+        # Volume Slider
+        vol_frame = tk.Frame(f, bg="#151a24")
+        vol_frame.pack(fill="x", pady=(4, 0))
+        tk.Label(vol_frame, text="🔊 Âm lượng:", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#F8FAFC").pack(side="left", padx=(0, 8))
+        
+        curr_vol = snd_cfg.get("volume", 50)
+        self.lbl_vol_val = tk.Label(vol_frame, text=f"{curr_vol}%", font=("Consolas", 9, "bold"), bg="#151a24", fg="#00FFCC", width=5)
+        self.lbl_vol_val.pack(side="right")
+
+        def _on_vol_slide(v_str):
+            v_int = int(float(v_str))
+            self.lbl_vol_val.configure(text=f"{v_int}%")
+            self.app.focus_sound_mgr.set_volume(v_int)
+            self.app.config.setdefault("focus_sound", {})["volume"] = v_int
+            self.app.save_config()
+
+        self.scale_volume = tk.Scale(
+            vol_frame,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            showvalue=False,
+            bg="#151a24",
+            troughcolor="#1e2430",
+            activebackground="#8B5CF6",
+            highlightthickness=0,
+            bd=0,
+            command=_on_vol_slide
+        )
+        self.scale_volume.set(curr_vol)
+        self.scale_volume.pack(side="left", fill="x", expand=True, padx=4)
+
+        # Thanh trạng thái & Nút điều khiển
+        self.lbl_sound_status = tk.Label(
+            f,
+            text=f"Trạng thái: {self.app.focus_sound_mgr.status_message}",
+            font=("Segoe UI", 8, "italic"),
+            bg="#151a24",
+            fg="#A78BFA"
+        )
+        self.lbl_sound_status.pack(anchor="w", pady=(4, 2))
 
         btn_box = tk.Frame(f, bg="#151a24")
-        btn_box.pack(fill="x", pady=(14, 0))
+        btn_box.pack(fill="x", pady=(6, 0))
 
         self.btn_toggle_play_sound = tk.Button(
             btn_box,
-            text="⏹ DỪNG PHÁT ÂM THANH" if self.app.focus_sound_mgr.is_playing else "▶ BẬT ÂM THANH TẬP TRUNG",
+            text="⏹ DỪNG PHÁT" if self.app.focus_sound_mgr.is_playing else "▶ PHÁT ÂM THANH / LINK",
             font=("Segoe UI", 9, "bold"),
             bg="#EF4444" if self.app.focus_sound_mgr.is_playing else "#8B5CF6",
             fg="#FFFFFF",
             relief="flat",
             padx=14,
-            pady=6,
+            pady=5,
             cursor="hand2",
             command=self._toggle_focus_sound_play
         )
-        self.btn_toggle_play_sound.pack(side="left")
+        self.btn_toggle_play_sound.pack(side="left", padx=(0, 8))
 
     def _on_sound_type_changed(self):
         st = self.var_sound_type.get()
+        custom_url = self.ent_custom_sound_url.get().strip() if hasattr(self, "ent_custom_sound_url") else ""
         self.app.config.setdefault("focus_sound", {})["sound_type"] = st
+        self.app.config["focus_sound"]["custom_url"] = custom_url
         self.app.save_config()
         if self.app.focus_sound_mgr.is_playing:
-            self.app.focus_sound_mgr.play(st)
+            self._start_playing_sound()
+
+    def _start_playing_sound(self):
+        st = self.var_sound_type.get()
+        custom_url = self.ent_custom_sound_url.get().strip() if hasattr(self, "ent_custom_sound_url") else ""
+        self.lbl_sound_status.configure(text="Trạng thái: ⏳ Đang chuẩn bị luồng âm thanh...", fg="#FCD34D")
+        self.btn_toggle_play_sound.configure(text="⏹ DỪNG PHÁT", bg="#EF4444")
+
+        def _on_status(success, msg):
+            def _ui_update():
+                if success:
+                    self.lbl_sound_status.configure(text=f"Trạng thái: 🟢 {msg}", fg="#34D399")
+                    self.btn_toggle_play_sound.configure(text="⏹ DỪNG PHÁT", bg="#EF4444")
+                elif success is None:
+                    self.lbl_sound_status.configure(text=f"Trạng thái: 🟡 {msg}", fg="#FCD34D")
+                else:
+                    self.lbl_sound_status.configure(text=f"Trạng thái: 🔴 {msg}", fg="#F87171")
+                    self.btn_toggle_play_sound.configure(text="▶ PHÁT ÂM THANH / LINK", bg="#8B5CF6")
+                self.app.update_extra_info_visibility()
+            self.after_idle(_ui_update)
+
+        self.app.focus_sound_mgr.play(st, custom_url=custom_url if st == "custom" else None, callback=_on_status)
 
     def _toggle_focus_sound_play(self):
-        st = self.var_sound_type.get()
-        is_now_playing = self.app.focus_sound_mgr.toggle(st)
-        self.btn_toggle_play_sound.configure(
-            text="⏹ DỪNG PHÁT ÂM THANH" if is_now_playing else "▶ BẬT ÂM THANH TẬP TRUNG",
-            bg="#EF4444" if is_now_playing else "#8B5CF6"
-        )
-        self.app.update_extra_info_visibility()
+        if self.app.focus_sound_mgr.is_playing:
+            self.app.focus_sound_mgr.stop()
+            self.lbl_sound_status.configure(text="Trạng thái: ⚪ Đã dừng phát", fg="#94A3B8")
+            self.btn_toggle_play_sound.configure(text="▶ PHÁT ÂM THANH / LINK", bg="#8B5CF6")
+            self.app.update_extra_info_visibility()
+        else:
+            self._start_playing_sound()
 
     # ---------------- 📅 TAB MILESTONES ----------------
     def _setup_milestones_tab(self):

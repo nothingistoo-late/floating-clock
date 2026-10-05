@@ -8,9 +8,11 @@ import sys
 
 if getattr(sys, 'frozen', False):
     APP_DIR = os.path.dirname(sys.executable)
+    BUNDLE_DIR = getattr(sys, '_MEIPASS', APP_DIR)
 else:
     # app/config.py is in app/, root project dir is parent
     APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    BUNDLE_DIR = APP_DIR
 
 CONFIG_FILE = os.path.join(APP_DIR, "clock_config.json")
 
@@ -116,10 +118,12 @@ DEFAULT_CONFIG = {
         "lon": 105.8542,
         "auto_refresh_min": 30
     },
-    # Focus Ambient Sound (Âm thanh nền tập trung / White noise)
+    # Focus Ambient Sound (Âm thanh nền tập trung / Nhạc stream)
     "focus_sound": {
         "enabled": False,
-        "sound_type": "rain"
+        "sound_type": "rain",
+        "custom_url": "",
+        "volume": 50
     }
 }
 
