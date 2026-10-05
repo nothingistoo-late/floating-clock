@@ -57,8 +57,28 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: 🌟 Floating Clock ${{ github.ref_name }}
-          generate_release_notes: true
+          name: 🚀 Floating Clock Release ${{ github.ref_name }}
+          body: |
+            ## 🚀 Floating Clock Release ${{ github.ref_name }} ( •̀ ω •́ )✧
+
+            ### 📦 Download Packages:
+            - **`FloatingClock_Setup_${{ github.ref_name }}.exe`** (Recommended): Full Windows Setup Wizard with Desktop & Start Menu shortcuts.
+            - **`FloatingClock_Portable_${{ github.ref_name }}.zip`**: Standalone portable archive (extract and run).
+
+            ---
+
+            ### ✨ What's New & Key Features:
+            - 🐱 **Pixel Mascot Desktop Pet:** Thú cưng ảo tự động chuyển trạng thái thông minh: cày cuốc (`work`) trong giờ làm, thư thái (`idle`) khi nghỉ trưa và nhảy nhót (`leaving`) khi sắp tan làm / cuối tuần.
+            - 🎧 **Focus Music & Stream Player:** Tích hợp bộ âm thanh tập trung êm dịu, đài Lofi Live 24/7 và hỗ trợ dán link **YouTube / TikTok / SoundCloud / MP3** để phát ngầm tiết kiệm tài nguyên.
+            - 💸 **Real-time Salary & Workday Progress:** Theo dõi tiền lương nhảy từng giây và thanh tiến độ ca làm việc trong ngày.
+            - 🍅 **Productivity Suite:** Pomodoro Tracker, Bộ đếm ngược, Đồng hồ bấm giờ, Báo thức và Nhắc nhở uống nước.
+            - 🌦️ **Weather Forecast & System Monitor:** Dự báo thời tiết Open-Meteo và theo dõi phần cứng CPU/RAM/Pin.
+            - 🎛️ **Control Center & Hotkeys:** Bảng điều khiển trực quan, phím tắt nhanh `F8` (Xuyên thấu) và `F9` (Bật/Tắt âm thanh).
+
+            ---
+
+            ### 📖 Documentation:
+            - [Main README](https://github.com/nothingistoo-late/floating-clock#readme)
           files: |
             dist/FloatingClock_Setup_*.exe
             dist/FloatingClock_Portable_*.zip
