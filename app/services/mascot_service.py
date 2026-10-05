@@ -32,9 +32,9 @@ class MascotManager:
         self.mascot_dir = next((d for d in dir_candidates if os.path.exists(d)), dir_candidates[0])
         self.frames = {"idle": [], "work": [], "leaving": []}
         self.intervals = {
-            "idle": 0.33,      # Thở & chớp mắt nhịp nhàng (chu kỳ 6 frame ~2.0s)
-            "work": 0.33,      # Gõ phím cày cuốc đều tay (chu kỳ 6 frame ~2.0s)
-            "leaving": 0.33,   # Nhảy chân sáo & ăn mừng bay bổng (chu kỳ 6 frame ~2.0s)
+            "idle": 0.40,      # Thở & chớp mắt nhịp nhàng (chu kỳ 6 frame ~2.4s)
+            "work": 0.40,      # Gõ phím chậm rãi, thư thả, quan sát rõ từng động tác (chu kỳ 12 frame ~4.8s)
+            "leaving": 0.35,   # Nhảy chân sáo & ăn mừng bay bổng (chu kỳ 6 frame ~2.1s)
         }
         self.current_state = "idle"
         self.current_frame_idx = 0
@@ -42,22 +42,21 @@ class MascotManager:
         self._load_sprites()
 
     def _load_sprites(self):
-        """Nạp các file PNG animation 6 frames vào bộ nhớ PhotoImage"""
-        state_configs = {
-            "idle": [f"cat_idle_{i}.png" for i in range(6)],
-            "work": [f"cat_work_{i}.png" for i in range(6)],
-            "leaving": [f"cat_leaving_{i}.png" for i in range(6)],
-        }
-        for state, fnames in state_configs.items():
+        """Nạp các file PNG animation vào bộ nhớ PhotoImage (tự động nhận diện số frame)"""
+        for state in ["idle", "work", "leaving"]:
             self.frames[state] = []
-            for fname in fnames:
-                fpath = os.path.join(self.mascot_dir, fname)
+            i = 0
+            while True:
+                fpath = os.path.join(self.mascot_dir, f"cat_{state}_{i}.png")
                 if os.path.exists(fpath):
                     try:
                         img = tk.PhotoImage(file=fpath, master=self.root)
                         self.frames[state].append(img)
+                        i += 1
                     except Exception:
-                        pass
+                        break
+                else:
+                    break
             # Nếu chưa có frame con nào thì fallback sang file gốc
             if not self.frames[state]:
                 fallback_path = os.path.join(self.mascot_dir, f"cat_{state}.png")

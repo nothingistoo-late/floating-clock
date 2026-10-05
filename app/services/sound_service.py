@@ -1,5 +1,5 @@
 """
-Audio and Sound Managers (Alarms, Chimes, and Focus Ambient / Stream Media)
+Audio and Sound Managers (Alarms, Chimes, and Natural Focus Ambient Sounds)
 Uses direct Native WinMM MCI Engine inside FloatingClock process.
 """
 import ctypes
@@ -7,14 +7,11 @@ import math
 import os
 import random
 import struct
-import subprocess
 import threading
 import time
-import urllib.request
-import ssl
 import wave
 import winsound
-from app.config import APP_DIR, BUNDLE_DIR
+from app.config import APP_DIR
 
 
 class SoundManager:
@@ -108,49 +105,36 @@ class SoundManager:
 
 class FocusSoundManager:
     """
-    Quản lý âm thanh tập trung chất lượng cao & phát nhạc trực tuyến từ URL
-    (Phát trực tiếp NATIVE trong tiến trình app qua Windows MCI - hiển thị đúng tên Floating Clock trong Volume Mixer)
+    Quản lý âm thanh tập trung chất lượng cao (Mưa rào, Sóng biển, Quán Cafe, Rừng đêm, Tiếng ồn trắng)
+    Phát trực tiếp NATIVE qua Windows MCI (hiển thị đúng biểu tượng & tên Floating Clock trong Volume Mixer)
     """
     ALIAS = "FC_FOCUS_BGM"
 
     SOUND_TYPES = {
         "rain": {
             "name": "Mưa rào êm dịu (Rainfall)",
-            "icon": "🌧️",
-            "type": "synth_rain"
+            "icon": "🌧️"
         },
         "ocean": {
             "name": "Sóng biển dạt dào (Ocean Waves)",
-            "icon": "🌊",
-            "type": "synth_ocean"
+            "icon": "🌊"
         },
         "cafe": {
             "name": "Quán cà phê chill (Cafe Ambient)",
-            "icon": "☕",
-            "type": "synth_cafe"
+            "icon": "☕"
         },
         "night_forest": {
             "name": "Rừng đêm tĩnh lặng & Tiếng dế",
-            "icon": "🌲",
-            "type": "synth_forest"
+            "icon": "🌲"
         },
-        "lofi_beats": {
-            "name": "Lofi Chill Radio (Live Stream)",
-            "icon": "🎧",
-            "url": "https://stream.zeno.fm/f3wvbbqmdg8uv",
-            "type": "stream"
+        "white_noise": {
+            "name": "Tiếng ồn trắng (White Noise)",
+            "icon": "📻"
         },
-        "lofi_piano": {
-            "name": "Lofi Piano Thư Giãn (Live Stream)",
-            "icon": "🎹",
-            "url": "https://stream.zeno.fm/0r0xa792kwzuv",
-            "type": "stream"
-        },
-        "custom": {
-            "name": "Phát từ Link tùy chỉnh (YouTube / TikTok / Stream)",
-            "icon": "🔗",
-            "type": "custom"
-        },
+        "pink_noise": {
+            "name": "Tiếng ồn hồng thư giãn (Pink Noise)",
+            "icon": "🌸"
+        }
     }
 
     def __init__(self, config):
@@ -160,19 +144,12 @@ class FocusSoundManager:
         self.current_title = ""
         self.status_message = "Chưa phát"
         self.volume = config.get("focus_sound", {}).get("volume", 50)
-        self.custom_url = config.get("focus_sound", {}).get("custom_url", "")
 
         self.sounds_dir = os.path.join(APP_DIR, "app", "assets", "sounds")
         os.makedirs(self.sounds_dir, exist_ok=True)
 
-        self.bin_dir = os.path.join(BUNDLE_DIR, "app", "bin")
-        if not os.path.exists(os.path.join(self.bin_dir, "yt-dlp.exe")):
-            self.bin_dir = os.path.join(APP_DIR, "app", "bin")
-        self.yt_dlp_path = os.path.join(self.bin_dir, "yt-dlp.exe")
-
         self._lock = threading.Lock()
         self._play_token = 0
-        self._current_loaded_file = None
 
     @property
     def current_sound(self):
@@ -194,10 +171,8 @@ class FocusSoundManager:
     def _apply_volume(self):
         """Áp dụng âm lượng qua MCI và Master Wave Volume"""
         try:
-            # 1. MCI Volume (0 - 1000)
             mci_vol = int(max(0, min(100, self.volume)) * 10)
             self._mci_send(f"setaudio {self.ALIAS} volume to {mci_vol}")
-            # 2. Master Wave Volume fallback (0x0000 - 0xFFFF)
             wave_vol = int((max(0, min(100, self.volume)) / 100.0) * 0xFFFF)
             ctypes.windll.winmm.waveOutSetVolume(0, (wave_vol << 16) | wave_vol)
         except Exception:
@@ -260,9 +235,24 @@ class FocusSoundManager:
                         val = max(-0.8, min(0.8, lp1 * 1.8 + cricket))
                         raw_data.extend(struct.pack('<h', int(val * 32767)))
 
-                else:
-                    for i in range(num_samples):
-                        white = random.uniform(-0.3, 0.3)
+                elif sound_type == "pink_noise":
+                    b0, b1, b2, b3, b4, b5, b6 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+                    for _ in range(num_samples):
+                        white = random.uniform(-1.0, 1.0)
+                        b0 = 0.99886 * b0 + white * 0.0555179
+                        b1 = 0.99332 * b1 + white * 0.0750759
+                        b2 = 0.96900 * b2 + white * 0.1538520
+                        b3 = 0.86650 * b3 + white * 0.3104856
+                        b4 = 0.55000 * b4 + white * 0.5329522
+                        b5 = -0.7616 * b5 - white * 0.0168980
+                        pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362
+                        b6 = white * 0.115926
+                        val = max(-0.8, min(0.8, pink * 0.12))
+                        raw_data.extend(struct.pack('<h', int(val * 32767)))
+
+                else:  # white_noise
+                    for _ in range(num_samples):
+                        white = random.uniform(-0.35, 0.35)
                         raw_data.extend(struct.pack('<h', int(white * 32767)))
 
                 wf.writeframes(raw_data)
@@ -270,74 +260,10 @@ class FocusSoundManager:
         except Exception:
             return None
 
-    def _fetch_media_to_local_file(self, raw_url):
-        """
-        Tải nhanh bài hát từ YouTube / TikTok / Stream về file đệm để MCI phát trực tiếp
-        """
-        raw_url = (raw_url or "").strip()
-        if not raw_url:
-            return None, "Link trống"
-
-        cache_base = os.path.join(self.sounds_dir, "_custom_audio")
-
-        # 1. Nếu là link trực tiếp MP3 / Audio Stream
-        if any(raw_url.lower().endswith(ext) for ext in [".mp3", ".wav", ".aac", ".m4a"]) or "stream.zeno.fm" in raw_url or "nightwaveplaza" in raw_url:
-            try:
-                target_file = cache_base + ".mp3"
-                ctx = ssl._create_unverified_context()
-                req = urllib.request.Request(raw_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, context=ctx, timeout=8) as resp, open(target_file, "wb") as f:
-                    f.write(resp.read(1024 * 1024)) # Đọc 1MB đệm đầu tiên
-                if os.path.exists(target_file) and os.path.getsize(target_file) > 10000:
-                    return target_file, "Online Audio Stream"
-            except Exception:
-                pass
-
-        # 2. Nếu là link YouTube / TikTok / SoundCloud -> dùng yt-dlp tải audio track
-        if os.path.exists(self.yt_dlp_path):
-            try:
-                # Xóa các file cache cũ
-                for ext in [".mp3", ".m4a", ".webm", ".opus", ".wav"]:
-                    old_f = cache_base + ext
-                    if os.path.exists(old_f):
-                        try:
-                            os.remove(old_f)
-                        except Exception:
-                            pass
-
-                # Lấy tiêu đề video
-                cmd_title = [self.yt_dlp_path, "--get-title", "--no-playlist", "--no-warnings", raw_url]
-                p_title = subprocess.run(cmd_title, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-                video_title = p_title.stdout.strip().splitlines()[0] if p_title.stdout.strip() else "Video Audio Track"
-
-                # Tải audio stream
-                out_tmpl = cache_base + ".%(ext)s"
-                cmd_dl = [
-                    self.yt_dlp_path,
-                    "-f", "bestaudio/best",
-                    "-o", out_tmpl,
-                    "--no-playlist",
-                    "--no-warnings",
-                    raw_url
-                ]
-                subprocess.run(cmd_dl, capture_output=True, timeout=25, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-
-                # Tìm file vừa tải
-                for ext in [".m4a", ".mp3", ".webm", ".opus", ".wav"]:
-                    cand = cache_base + ext
-                    if os.path.exists(cand) and os.path.getsize(cand) > 10000:
-                        return cand, video_title
-            except Exception:
-                pass
-
-        return None, "Không thể tải luồng âm thanh"
-
-    def play(self, sound_type=None, custom_url=None, callback=None):
-        """Bắt đầu phát âm thanh tập trung hoặc luồng nhạc từ URL trực tiếp qua WinMM"""
+    def play(self, sound_type=None, callback=None):
+        """Bắt đầu phát âm thanh tập trung"""
         if sound_type:
             self.current_sound_type = sound_type
-        if custom_url is not None:
-            self.custom_url = custom_url
 
         self._play_token += 1
         current_token = self._play_token
@@ -347,64 +273,47 @@ class FocusSoundManager:
                 if current_token != self._play_token:
                     return
 
-                # Dừng và đóng thiết bị âm thanh cũ
+                # Dừng âm thanh cũ
+                try:
+                    winsound.PlaySound(None, winsound.SND_PURGE)
+                except Exception:
+                    pass
                 self._mci_send(f"stop {self.ALIAS}")
                 self._mci_send(f"close {self.ALIAS}")
 
                 stype = self.current_sound_type
                 s_info = self.SOUND_TYPES.get(stype, {})
-                target_file = None
                 display_title = s_info.get("name", "Âm thanh tập trung")
-
-                if stype == "custom" or self.custom_url:
-                    self.status_message = "⏳ Đang tải bài hát từ link..."
-                    if callback:
-                        callback(None, self.status_message)
-                    url_to_fetch = self.custom_url if self.custom_url else s_info.get("url", "")
-                    loaded_file, title = self._fetch_media_to_local_file(url_to_fetch)
-                    if loaded_file:
-                        target_file = loaded_file
-                        display_title = title
-                    else:
-                        self.status_message = "Lỗi: Không thể phát link này"
-                        if callback:
-                            callback(False, self.status_message)
-                        return
-
-                elif s_info.get("type") == "stream":
-                    self.status_message = f"⏳ Đang kết nối đài {display_title}..."
-                    if callback:
-                        callback(None, self.status_message)
-                    loaded_file, _ = self._fetch_media_to_local_file(s_info.get("url"))
-                    if loaded_file:
-                        target_file = loaded_file
-                    else:
-                        # Fallback sang tiếng mưa tự nhiên nếu stream online gián đoạn
-                        target_file = self.generate_synth_wav("rain")
-
-                else:
-                    # Âm thanh tự nhiên (Rain, Ocean, Cafe, Forest)
-                    self.status_message = f"Đang phát {display_title}..."
-                    target_file = self.generate_synth_wav(stype)
+                target_file = self.generate_synth_wav(stype)
 
                 if current_token != self._play_token:
                     return
 
                 if target_file and os.path.exists(target_file):
-                    target_path = os.path.abspath(target_file)
-                    # Mở file với WinMM MCI
-                    err_open, _ = self._mci_send(f'open "{target_path}" alias {self.ALIAS}')
-                    if err_open == 0:
+                    norm_p = os.path.abspath(target_file).replace("\\", "/")
+                    err, _ = self._mci_send(f'open "{norm_p}" type mpegvideo alias {self.ALIAS}')
+                    if err == 0:
+                        self._mci_send(f"set {self.ALIAS} time format ms")
                         self._apply_volume()
-                        # Phát lặp lại vô tận (repeat)
                         self._mci_send(f"play {self.ALIAS} repeat")
                         self.is_playing = True
-                        self._current_loaded_file = target_path
                         self.current_title = display_title
                         self.status_message = f"Đang phát: {display_title}"
                         if callback:
                             callback(True, self.status_message)
                         return
+                    else:
+                        # Fallback bằng winsound
+                        try:
+                            winsound.PlaySound(target_file, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+                            self.is_playing = True
+                            self.current_title = display_title
+                            self.status_message = f"Đang phát: {display_title}"
+                            if callback:
+                                callback(True, self.status_message)
+                            return
+                        except Exception:
+                            pass
 
                 self.is_playing = False
                 self.status_message = "Không thể phát âm thanh"
@@ -418,20 +327,14 @@ class FocusSoundManager:
         """Dừng phát âm thanh nền"""
         self._play_token += 1
         with self._lock:
+            try:
+                winsound.PlaySound(None, winsound.SND_PURGE)
+            except Exception:
+                pass
             self._mci_send(f"stop {self.ALIAS}")
             self._mci_send(f"close {self.ALIAS}")
             self.is_playing = False
             self.status_message = "Đã dừng"
-
-    def pause(self):
-        self._mci_send(f"pause {self.ALIAS}")
-        self.is_playing = False
-        self.status_message = "Tạm dừng"
-
-    def resume(self):
-        self._mci_send(f"resume {self.ALIAS}")
-        self.is_playing = True
-        self.status_message = f"Đang phát: {self.current_title}"
 
     def set_volume(self, vol):
         """Thiết lập âm lượng (0 - 100)"""
@@ -442,7 +345,7 @@ class FocusSoundManager:
         except Exception:
             pass
 
-    def toggle(self, sound_type=None, custom_url=None, callback=None):
+    def toggle(self, sound_type=None, callback=None):
         """Bật / Tắt âm thanh tập trung"""
         if self.is_playing:
             self.stop()
@@ -450,7 +353,7 @@ class FocusSoundManager:
                 callback(False, "Đã dừng")
             return False
         else:
-            return self.play(sound_type, custom_url, callback)
+            return self.play(sound_type, callback)
 
 
 # Global singleton instance for chimes/alarm

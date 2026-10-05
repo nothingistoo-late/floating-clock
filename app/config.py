@@ -118,11 +118,10 @@ DEFAULT_CONFIG = {
         "lon": 105.8542,
         "auto_refresh_min": 30
     },
-    # Focus Ambient Sound (Âm thanh nền tập trung / Nhạc stream)
+    # Focus Ambient Sound (Âm thanh nền tập trung tự nhiên)
     "focus_sound": {
         "enabled": False,
         "sound_type": "rain",
-        "custom_url": "",
         "volume": 50
     }
 }
