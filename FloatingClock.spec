@@ -7,7 +7,7 @@ block_cipher = None
 # Gather data files
 datas = [
     ('app/assets', 'app/assets'),
-    ('app/scripts', 'app/scripts'),
+    ('icon.ico', '.'),
     ('clock_config.example.json', '.'),
 ]
 

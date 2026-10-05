@@ -19,6 +19,7 @@ build/
 dist/
 _ambient_loop.wav
 app/bin/
+app/assets/sounds/_*
 *.exe
 
 # IDE & Editor
