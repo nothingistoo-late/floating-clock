@@ -36,6 +36,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 
 ; Visuals
+SetupIconFile=..\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 DisableWelcomePage=no
 
