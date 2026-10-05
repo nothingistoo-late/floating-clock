@@ -829,7 +829,7 @@ class FloatingClock:
             state = "leaving"
         else:
             configured_action = self.config.get("mascot_action", "auto")
-            if configured_action in ("idle", "work", "leaving"):
+            if configured_action in ("idle", "work", "leaving", "sleep"):
                 state = configured_action
             else:
                 now = datetime.now()
