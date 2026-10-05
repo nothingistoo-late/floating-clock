@@ -159,6 +159,7 @@ class ContextMenuBuilder:
                 ("🧘 Thư giãn (Luôn Idle)", "idle"),
                 ("💻 Gõ phím làm việc (Luôn Working)", "work"),
                 ("🎒 Nhảy nhót ăn mừng (Luôn Happy)", "leaving"),
+                ("💤 Ngủ say sưa (Luôn Sleeping)", "sleep"),
             ]
             for act_lbl, act_val in acts:
                 pfx = "✓ " if cur_act == act_val else "   "

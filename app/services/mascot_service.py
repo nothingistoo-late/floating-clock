@@ -30,11 +30,12 @@ class MascotManager:
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "mascot"),
         ]
         self.mascot_dir = next((d for d in dir_candidates if os.path.exists(d)), dir_candidates[0])
-        self.frames = {"idle": [], "work": [], "leaving": []}
+        self.frames = {"idle": [], "work": [], "leaving": [], "sleep": []}
         self.intervals = {
             "idle": 0.40,      # Thở & chớp mắt nhịp nhàng (chu kỳ 6 frame ~2.4s)
-            "work": 0.40,      # Gõ phím chậm rãi, thư thả, quan sát rõ từng động tác (chu kỳ 12 frame ~4.8s)
+            "work": 0.40,      # Gõ phím chậm rãi, thư thả (chu kỳ 12 frame ~4.8s)
             "leaving": 0.35,   # Nhảy chân sáo & ăn mừng bay bổng (chu kỳ 6 frame ~2.1s)
+            "sleep": 0.45,     # Ngủ say sưa, thở phập phồng êm đềm (chu kỳ 12 frame ~5.4s)
         }
         self.current_state = "idle"
         self.current_frame_idx = 0
@@ -43,7 +44,7 @@ class MascotManager:
 
     def _load_sprites(self):
         """Nạp các file PNG animation vào bộ nhớ PhotoImage (tự động nhận diện số frame)"""
-        for state in ["idle", "work", "leaving"]:
+        for state in ["idle", "work", "leaving", "sleep"]:
             self.frames[state] = []
             i = 0
             while True:
@@ -69,34 +70,18 @@ class MascotManager:
     def get_state(self, current_mode, pomo_running, pomo_stage="work", is_leaving_soon=False, now=None):
         """
         Xác định trạng thái của bé mèo dựa trên ngữ cảnh hoạt động và thời gian biểu:
-        - Pomodoro: 'work' khi đang cày cuốc, 'idle' khi đến giờ nghỉ giải lao (break).
+        - Giờ ngủ trưa & Đêm muộn (sau 22:00 -> sáng hôm sau): 'sleep' (cuộn tròn ngủ khò khò).
+        - Pomodoro: 'work' khi đang cày cuốc, 'idle'/'sleep' khi nghỉ giải lao.
         - Giờ làm việc: 'work' (08:30 -> tan làm, trừ giờ nghỉ trưa & 30p sắp về).
-        - Giờ nghỉ ngơi (nghỉ trưa / trước giờ làm): 'idle' (thư thái thở & chớp mắt).
-        - Sắp về (30p trước tan làm) hoặc Ngoài giờ làm việc (sau tan làm / ngày nghỉ): 'leaving' (nhảy nhót vui vẻ).
+        - Sắp về (30p trước tan làm) hoặc Ngoài giờ làm việc ban ngày (sau tan làm -> trước 22:00): 'leaving'.
         """
-        # 1. Ưu tiên chế độ Pomodoro
-        if pomo_running:
-            if pomo_stage in ("break", "long_break"):
-                return "idle"
-            return "work"
-
-        # 2. Nếu đang chạy Timer hoặc Stopwatch
-        if current_mode in ("timer", "stopwatch") and pomo_running:
-            return "work"
-
-        # 3. Phân tích theo thời gian biểu làm việc trong ngày
         if now is None:
             now = datetime.now()
 
-        weekday = now.weekday()  # 0: Thứ 2, ..., 5: Thứ 7, 6: Chủ Nhật
-
-        # Ngày nghỉ cuối tuần (Chủ Nhật) -> Ngoài giờ làm việc, nhảy nhót xả hơi
-        if weekday == 6:
-            return "leaving"
-
+        # 1. Kiểm tra giờ ngủ trưa & Đêm muộn (Ưu tiên trạng thái Sleep)
         work_cfg = self.config.get("work_departure", {})
         start_str = work_cfg.get("start_time", "08:30")
-        dep_str = work_cfg.get("sat_time", "16:00") if weekday == 5 else work_cfg.get("mon_fri_time", "17:45")
+        dep_str = work_cfg.get("sat_time", "16:00") if now.weekday() == 5 else work_cfg.get("mon_fri_time", "17:45")
         lunch_start_str = work_cfg.get("lunch_start", "12:00")
         lunch_end_str = work_cfg.get("lunch_end", "13:30")
 
@@ -107,26 +92,45 @@ class MascotManager:
             dt_lunch_start = datetime.strptime(f"{today_str} {lunch_start_str}:00", "%Y-%m-%d %H:%M:%S")
             dt_lunch_end = datetime.strptime(f"{today_str} {lunch_end_str}:00", "%Y-%m-%d %H:%M:%S")
         except Exception:
-            return "leaving" if is_leaving_soon else "idle"
+            dt_start = now.replace(hour=8, minute=30, second=0)
+            dt_dep = now.replace(hour=17, minute=45, second=0)
+            dt_lunch_start = now.replace(hour=12, minute=0, second=0)
+            dt_lunch_end = now.replace(hour=13, minute=30, second=0)
 
-        # Ngoài giờ làm việc (sau giờ tan làm) -> Nhảy nhót tự do
-        if now >= dt_dep:
+        # 2. Ưu tiên chế độ Pomodoro khi người dùng chủ động kích hoạt
+        if pomo_running:
+            if pomo_stage in ("break", "long_break"):
+                if dt_lunch_start <= now < dt_lunch_end or now.hour >= 22 or now < dt_start:
+                    return "sleep"
+                return "idle"
+            return "work"
+
+        # 3. Nếu đang chạy Timer hoặc Stopwatch
+        if current_mode in ("timer", "stopwatch") and pomo_running:
+            return "work"
+
+        # 4. Giờ ngủ ban đêm (Từ 22:00 tối đến trước giờ bắt đầu làm việc sáng hôm sau)
+        if now.hour >= 22 or now < dt_start:
+            return "sleep"
+
+        # 5. Giờ ngủ trưa (Từ lunch_start đến lunch_end)
+        if dt_lunch_start <= now < dt_lunch_end:
+            return "sleep"
+
+        # 6. Ngày nghỉ cuối tuần (Chủ Nhật) -> Ngoài giờ làm việc, nhảy nhót vui tươi
+        if now.weekday() == 6:
             return "leaving"
 
-        # Sắp tan làm (trong vòng 30 phút trước giờ về) -> Nhảy nhót ăn mừng
+        # 7. Sắp tan làm (trong vòng 30 phút trước giờ về)
         diff_to_dep_min = (dt_dep - now).total_seconds() / 60.0
         if 0 <= diff_to_dep_min <= 30 or is_leaving_soon:
             return "leaving"
 
-        # Trước giờ vào ca làm việc buổi sáng -> Thư thái chuẩn bị
-        if now < dt_start:
-            return "idle"
+        # 8. Sau giờ tan làm (đến trước 22:00 đêm) -> Nhảy nhót ăn mừng
+        if now >= dt_dep:
+            return "leaving"
 
-        # Trong giờ nghỉ trưa -> Nghỉ ngơi thư giãn
-        if dt_lunch_start <= now < dt_lunch_end:
-            return "idle"
-
-        # Trong giờ làm việc chính thức -> Cày cuốc gõ phím
+        # 9. Trong giờ làm việc chính thức -> Cày cuốc gõ phím
         return "work"
 
     def get_animated_sprite(self, state, now_ts):
