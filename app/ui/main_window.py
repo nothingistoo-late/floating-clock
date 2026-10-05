@@ -582,10 +582,8 @@ class FloatingClock:
 
     def toggle_focus_sound(self):
         st = self.config.get("focus_sound", {}).get("sound_type", "rain")
-        custom_url = self.config.get("focus_sound", {}).get("custom_url", "")
         self.focus_sound_mgr.toggle(
             sound_type=st,
-            custom_url=custom_url if st == "custom" else None,
             callback=lambda ok, msg: self.root.after_idle(self.update_extra_info_visibility)
         )
         self.update_extra_info_visibility()
@@ -594,10 +592,8 @@ class FloatingClock:
         self.config.setdefault("focus_sound", {})["sound_type"] = sound_type
         self.config["focus_sound"]["enabled"] = True
         self.save_config()
-        custom_url = self.config.get("focus_sound", {}).get("custom_url", "")
         self.focus_sound_mgr.play(
             sound_type=sound_type,
-            custom_url=custom_url if sound_type == "custom" else None,
             callback=lambda ok, msg: self.root.after_idle(self.update_extra_info_visibility)
         )
         self.update_extra_info_visibility()
