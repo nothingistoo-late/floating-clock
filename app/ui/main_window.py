@@ -9,7 +9,7 @@ import time
 import tkinter as tk
 from tkinter import colorchooser, ttk
 
-from app.config import load_config, save_config
+from app.config import APP_DIR, BUNDLE_DIR, load_config, save_config
 from app.core.salary_calculator import calculate_salary_info, get_payday_countdown_info
 from app.core.system_monitor import get_cpu_usage_percent, get_ram_usage_percent
 from app.core.win32_utils import GlobalHotkeyManager, set_click_through
@@ -92,6 +92,20 @@ class FloatingClock:
         self._menu_anchor = None
         self._is_menu_open = False
         self._hydration_dialog = None
+
+        # Thiết lập Icon cho ứng dụng
+        icon_candidates = [
+            os.path.join(BUNDLE_DIR, "icon.ico"),
+            os.path.join(BUNDLE_DIR, "app", "assets", "icon.ico"),
+            os.path.join(APP_DIR, "icon.ico"),
+        ]
+        for ipath in icon_candidates:
+            if os.path.exists(ipath):
+                try:
+                    self.root.iconbitmap(ipath)
+                    break
+                except Exception:
+                    pass
 
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
