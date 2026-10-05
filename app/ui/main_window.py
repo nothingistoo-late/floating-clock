@@ -810,7 +810,13 @@ class FloatingClock:
             else:
                 now = datetime.now()
                 is_leaving_soon = self.is_near_departure_time(now)
-                state = self.mascot_mgr.get_state(self.current_mode, self.pomo_running, is_leaving_soon)
+                state = self.mascot_mgr.get_state(
+                    current_mode=self.current_mode,
+                    pomo_running=self.pomo_running,
+                    pomo_stage=self.pomo_stage,
+                    is_leaving_soon=is_leaving_soon,
+                    now=now
+                )
 
         now_ts = time.time()
         img = self.mascot_mgr.get_animated_sprite(state, now_ts)

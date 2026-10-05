@@ -4,6 +4,7 @@ Pixel Mascot Manager (Virtual Desktop Pet)
 import os
 import random
 import tkinter as tk
+from datetime import datetime
 from app.config import APP_DIR
 
 
@@ -65,13 +66,68 @@ class MascotManager:
                     except Exception:
                         pass
 
-    def get_state(self, current_mode, pomo_running, is_leaving_soon):
-        """Xác định trạng thái của bé mèo dựa trên ngữ cảnh hoạt động"""
-        if pomo_running or (current_mode in ("timer", "stopwatch") and pomo_running):
+    def get_state(self, current_mode, pomo_running, pomo_stage="work", is_leaving_soon=False, now=None):
+        """
+        Xác định trạng thái của bé mèo dựa trên ngữ cảnh hoạt động và thời gian biểu:
+        - Pomodoro: 'work' khi đang cày cuốc, 'idle' khi đến giờ nghỉ giải lao (break).
+        - Giờ làm việc: 'work' (08:30 -> tan làm, trừ giờ nghỉ trưa & 30p sắp về).
+        - Giờ nghỉ ngơi (nghỉ trưa / trước giờ làm): 'idle' (thư thái thở & chớp mắt).
+        - Sắp về (30p trước tan làm) hoặc Ngoài giờ làm việc (sau tan làm / ngày nghỉ): 'leaving' (nhảy nhót vui vẻ).
+        """
+        # 1. Ưu tiên chế độ Pomodoro
+        if pomo_running:
+            if pomo_stage in ("break", "long_break"):
+                return "idle"
             return "work"
-        if is_leaving_soon or current_mode == "target_time":
+
+        # 2. Nếu đang chạy Timer hoặc Stopwatch
+        if current_mode in ("timer", "stopwatch") and pomo_running:
+            return "work"
+
+        # 3. Phân tích theo thời gian biểu làm việc trong ngày
+        if now is None:
+            now = datetime.now()
+
+        weekday = now.weekday()  # 0: Thứ 2, ..., 5: Thứ 7, 6: Chủ Nhật
+
+        # Ngày nghỉ cuối tuần (Chủ Nhật) -> Ngoài giờ làm việc, nhảy nhót xả hơi
+        if weekday == 6:
             return "leaving"
-        return "idle"
+
+        work_cfg = self.config.get("work_departure", {})
+        start_str = work_cfg.get("start_time", "08:30")
+        dep_str = work_cfg.get("sat_time", "16:00") if weekday == 5 else work_cfg.get("mon_fri_time", "17:45")
+        lunch_start_str = work_cfg.get("lunch_start", "12:00")
+        lunch_end_str = work_cfg.get("lunch_end", "13:30")
+
+        today_str = now.strftime("%Y-%m-%d")
+        try:
+            dt_start = datetime.strptime(f"{today_str} {start_str}:00", "%Y-%m-%d %H:%M:%S")
+            dt_dep = datetime.strptime(f"{today_str} {dep_str}:00", "%Y-%m-%d %H:%M:%S")
+            dt_lunch_start = datetime.strptime(f"{today_str} {lunch_start_str}:00", "%Y-%m-%d %H:%M:%S")
+            dt_lunch_end = datetime.strptime(f"{today_str} {lunch_end_str}:00", "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return "leaving" if is_leaving_soon else "idle"
+
+        # Ngoài giờ làm việc (sau giờ tan làm) -> Nhảy nhót tự do
+        if now >= dt_dep:
+            return "leaving"
+
+        # Sắp tan làm (trong vòng 30 phút trước giờ về) -> Nhảy nhót ăn mừng
+        diff_to_dep_min = (dt_dep - now).total_seconds() / 60.0
+        if 0 <= diff_to_dep_min <= 30 or is_leaving_soon:
+            return "leaving"
+
+        # Trước giờ vào ca làm việc buổi sáng -> Thư thái chuẩn bị
+        if now < dt_start:
+            return "idle"
+
+        # Trong giờ nghỉ trưa -> Nghỉ ngơi thư giãn
+        if dt_lunch_start <= now < dt_lunch_end:
+            return "idle"
+
+        # Trong giờ làm việc chính thức -> Cày cuốc gõ phím
+        return "work"
 
     def get_animated_sprite(self, state, now_ts):
         """Lấy frame animation hiện tại theo nhịp thời gian (chu kỳ 6 frames)"""
