@@ -12,7 +12,7 @@ from tkinter import colorchooser, ttk
 from app.config import APP_DIR, BUNDLE_DIR, load_config, save_config
 from app.core.salary_calculator import calculate_salary_info, get_payday_countdown_info
 from app.core.system_monitor import get_cpu_usage_percent, get_ram_usage_percent
-from app.core.win32_utils import GlobalHotkeyManager, set_click_through
+from app.core.win32_utils import GlobalHotkeyManager, hide_from_taskbar, set_click_through
 from app.services.ai_service import AIManager
 from app.services.sound_service import FocusSoundManager, sound_mgr
 from app.services.weather_service import WeatherManager
@@ -107,6 +107,12 @@ class FloatingClock:
                 except Exception:
                     pass
 
+        # Tool window: không nút taskbar và không vào Alt+Tab.
+        # Đặt trước overrideredirect để Tk tạo wrapper đúng kiểu.
+        try:
+            self.root.attributes("-toolwindow", True)
+        except Exception:
+            pass
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", self.config.get("opacity", 0.90))
@@ -134,6 +140,10 @@ class FloatingClock:
             pass
 
         self.update_loop()
+        # Chạy sau deiconify ở main(): Win32 style bị Tk ghi đè lúc map cửa sổ.
+        self.root.after(0, lambda: hide_from_taskbar(self.root))
+        # auto_hide bật sẵn thì làm mờ ngay nếu chuột không nằm trên đồng hồ
+        self.root.after(50, self._sync_autohide_alpha)
 
     def save_config(self):
         try:
@@ -280,19 +290,55 @@ class FloatingClock:
             self.apply_click_through(False)
 
         self.save_config()
-        if not new_val:
-            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+        self._sync_autohide_alpha(force_full=not new_val)
+
+    def _pointer_over_clock(self):
+        """Chuột còn nằm trong khung đồng hồ hay đã ra ngoài hẳn."""
+        try:
+            px, py = self.root.winfo_pointerxy()
+            rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+            rw, rh = self.root.winfo_width(), self.root.winfo_height()
+            return rw > 1 and rh > 1 and rx <= px < rx + rw and ry <= py < ry + rh
+        except Exception:
+            return False
+
+    def _sync_autohide_alpha(self, force_full=False):
+        """Đặt alpha theo vị trí chuột. force_full dùng khi tắt tính năng."""
+        self._autohide_after = None
+        if force_full or not self.config.get("auto_hide", False):
+            try:
+                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            except Exception:
+                pass
+            return
+        if getattr(self, "_is_menu_open", False):
+            return
+        try:
+            if self._pointer_over_clock():
+                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            else:
+                self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+        except Exception:
+            pass
 
     def on_mouse_enter(self, event):
         if self.config.get("auto_hide", False):
-            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            self._sync_autohide_alpha()
 
     def on_mouse_leave(self, event):
-        # Không làm mờ nếu context menu đang mở để tránh xung đột compositing và giật giật DWM
+        # Tk bắn <Leave> cả khi chuột chỉ đi từ nền cửa sổ vào label con.
+        # Hoãn một nhịp rồi đo lại vị trí chuột, chỉ làm mờ khi đã ra ngoài khung.
         if getattr(self, "_is_menu_open", False):
             return
-        if self.config.get("auto_hide", False):
-            self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+        if not self.config.get("auto_hide", False):
+            return
+        pending = getattr(self, "_autohide_after", None)
+        if pending:
+            try:
+                self.root.after_cancel(pending)
+            except Exception:
+                pass
+        self._autohide_after = self.root.after(30, self._sync_autohide_alpha)
 
     def toggle_mini_mode(self):
         self.config["mini_mode"] = not self.config.get("mini_mode", False)
@@ -784,6 +830,7 @@ class FloatingClock:
             bubble.geometry(f"{bw}x{bh}+{bx}+{by}")
             bubble.deiconify()
             self._mascot_bubble = bubble
+            bubble.after(0, lambda: hide_from_taskbar(bubble))
 
             # Tự động đóng bong bóng thoại sau 3.0 giây (hủy bỏ timer cũ nếu người dùng click liên tiếp)
             self._bubble_timer = self.root.after(3000, self._close_mascot_bubble)
@@ -937,16 +984,8 @@ class FloatingClock:
         def _on_menu_dismiss():
             self._is_menu_open = False
             self._current_menu = None
-            # Khôi phục độ trong suốt nếu rời chuột
-            if self.config.get("auto_hide", False) and not self.config.get("click_through", False):
-                try:
-                    px, py = self.root.winfo_pointerxy()
-                    rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
-                    rw, rh = self.root.winfo_width(), self.root.winfo_height()
-                    if not (rx <= px <= rx + rw and ry <= py <= ry + rh):
-                        self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
-                except Exception:
-                    pass
+            # Khôi phục độ trong suốt theo vị trí chuột sau khi menu đóng
+            self._sync_autohide_alpha()
 
         menu.bind("<Unmap>", lambda e: self.root.after(100, _on_menu_dismiss))
         menu.tk_popup(event.x_root, event.y_root)

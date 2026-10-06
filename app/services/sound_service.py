@@ -103,10 +103,15 @@ class SoundManager:
         threading.Thread(target=_worker, daemon=True).start()
 
 
+import queue
+from app.config import APP_DIR, BUNDLE_DIR
+
+
 class FocusSoundManager:
     """
     Quản lý âm thanh tập trung chất lượng cao (Mưa rào, Sóng biển, Quán Cafe, Rừng đêm, Tiếng ồn trắng)
-    Phát trực tiếp NATIVE qua Windows MCI (hiển thị đúng biểu tượng & tên Floating Clock trong Volume Mixer)
+    Sử dụng luồng thực thi âm thanh chuyên dụng (Dedicated Audio Worker) để điều khiển Windows MCI,
+    đảm bảo chuyển đổi tức thì giữa các âm thanh, không bị phát chồng chéo và dừng sạch sẽ 100%.
     """
     ALIAS = "FC_FOCUS_BGM"
 
@@ -145,11 +150,22 @@ class FocusSoundManager:
         self.status_message = "Chưa phát"
         self.volume = config.get("focus_sound", {}).get("volume", 50)
 
-        self.sounds_dir = os.path.join(APP_DIR, "app", "assets", "sounds")
-        os.makedirs(self.sounds_dir, exist_ok=True)
+        dir_candidates = [
+            os.path.join(BUNDLE_DIR, "app", "assets", "sounds"),
+            os.path.join(APP_DIR, "app", "assets", "sounds"),
+            os.path.join(APP_DIR, "assets", "sounds"),
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "sounds"),
+        ]
+        self.sounds_dir = next((d for d in dir_candidates if os.path.exists(d)), dir_candidates[0])
+        try:
+            os.makedirs(self.sounds_dir, exist_ok=True)
+        except Exception:
+            pass
 
-        self._lock = threading.Lock()
-        self._play_token = 0
+        # Hàng đợi lệnh điều khiển âm thanh trên một luồng MCI chuyên biệt duy nhất
+        self._cmd_queue = queue.Queue()
+        self._worker_thread = threading.Thread(target=self._audio_worker_loop, daemon=True, name="FC_AudioWorker")
+        self._worker_thread.start()
 
     @property
     def current_sound(self):
@@ -160,7 +176,7 @@ class FocusSoundManager:
         self.current_sound_type = val
 
     def _mci_send(self, cmd_str):
-        """Gửi lệnh trực tiếp đến Windows Multimedia Engine (WinMM)"""
+        """Gửi lệnh trực tiếp đến Windows Multimedia Engine (WinMM) trên cùng luồng worker"""
         try:
             buf = ctypes.create_unicode_buffer(256)
             err = ctypes.windll.winmm.mciSendStringW(cmd_str, buf, 255, 0)
@@ -260,97 +276,126 @@ class FocusSoundManager:
         except Exception:
             return None
 
-    def play(self, sound_type=None, callback=None):
-        """Bắt đầu phát âm thanh tập trung"""
-        if sound_type:
-            self.current_sound_type = sound_type
-
-        self._play_token += 1
-        current_token = self._play_token
-
-        def _async_worker():
-            with self._lock:
-                if current_token != self._play_token:
-                    return
-
-                # Dừng âm thanh cũ
-                try:
-                    winsound.PlaySound(None, winsound.SND_PURGE)
-                except Exception:
-                    pass
-                self._mci_send(f"stop {self.ALIAS}")
-                self._mci_send(f"close {self.ALIAS}")
-
-                stype = self.current_sound_type
-                s_info = self.SOUND_TYPES.get(stype, {})
-                display_title = s_info.get("name", "Âm thanh tập trung")
-                target_file = self.generate_synth_wav(stype)
-
-                if current_token != self._play_token:
-                    return
-
-                if target_file and os.path.exists(target_file):
-                    norm_p = os.path.abspath(target_file).replace("\\", "/")
-                    err, _ = self._mci_send(f'open "{norm_p}" type mpegvideo alias {self.ALIAS}')
-                    if err == 0:
-                        self._mci_send(f"set {self.ALIAS} time format ms")
-                        self._apply_volume()
-                        self._mci_send(f"play {self.ALIAS} repeat")
-                        self.is_playing = True
-                        self.current_title = display_title
-                        self.status_message = f"Đang phát: {display_title}"
-                        if callback:
-                            callback(True, self.status_message)
-                        return
-                    else:
-                        # Fallback bằng winsound
+    def _audio_worker_loop(self):
+        """Vòng lặp xử lý lệnh âm thanh tập trung trên luồng đơn nhất định danh MCI"""
+        while True:
+            cmd, payload, callback = self._cmd_queue.get()
+            try:
+                if cmd == "stop":
+                    # Dừng và đóng sạch sẽ thiết bị MCI hiện tại
+                    try:
+                        winsound.PlaySound(None, winsound.SND_PURGE)
+                    except Exception:
+                        pass
+                    self._mci_send(f"stop {self.ALIAS}")
+                    self._mci_send(f"close {self.ALIAS}")
+                    self.is_playing = False
+                    self.status_message = "Đã dừng"
+                    if callback:
                         try:
-                            winsound.PlaySound(target_file, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
-                            self.is_playing = True
-                            self.current_title = display_title
-                            self.status_message = f"Đang phát: {display_title}"
-                            if callback:
-                                callback(True, self.status_message)
-                            return
+                            callback(False, "Đã dừng")
                         except Exception:
                             pass
 
-                self.is_playing = False
-                self.status_message = "Không thể phát âm thanh"
-                if callback:
-                    callback(False, self.status_message)
+                elif cmd == "play":
+                    stype = payload
+                    # 1. Dừng âm thanh cũ hoàn toàn trước khi nạp âm thanh mới
+                    try:
+                        winsound.PlaySound(None, winsound.SND_PURGE)
+                    except Exception:
+                        pass
+                    self._mci_send(f"stop {self.ALIAS}")
+                    self._mci_send(f"close {self.ALIAS}")
 
-        threading.Thread(target=_async_worker, daemon=True).start()
-        return True
+                    s_info = self.SOUND_TYPES.get(stype, {})
+                    display_title = s_info.get("name", "Âm thanh tập trung")
+                    target_file = self.generate_synth_wav(stype)
 
-    def stop(self):
-        """Dừng phát âm thanh nền"""
-        self._play_token += 1
-        with self._lock:
-            try:
-                winsound.PlaySound(None, winsound.SND_PURGE)
+                    if target_file and os.path.exists(target_file):
+                        norm_p = os.path.abspath(target_file).replace("\\", "/")
+                        err, _ = self._mci_send(f'open "{norm_p}" type mpegvideo alias {self.ALIAS}')
+                        if err == 0:
+                            self._mci_send(f"set {self.ALIAS} time format ms")
+                            self._apply_volume()
+                            self._mci_send(f"play {self.ALIAS} repeat")
+                            self.is_playing = True
+                            self.current_sound_type = stype
+                            self.current_title = display_title
+                            self.status_message = f"Đang phát: {display_title}"
+                            if callback:
+                                try:
+                                    callback(True, self.status_message)
+                                except Exception:
+                                    pass
+                            continue
+                        else:
+                            # Fallback winsound nếu hệ thống không cho phép mở mpegvideo
+                            try:
+                                winsound.PlaySound(target_file, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+                                self.is_playing = True
+                                self.current_sound_type = stype
+                                self.current_title = display_title
+                                self.status_message = f"Đang phát: {display_title}"
+                                if callback:
+                                    try:
+                                        callback(True, self.status_message)
+                                    except Exception:
+                                        pass
+                                continue
+                            except Exception:
+                                pass
+
+                    self.is_playing = False
+                    self.status_message = "Không thể phát âm thanh"
+                    if callback:
+                        try:
+                            callback(False, self.status_message)
+                        except Exception:
+                            pass
+
+                elif cmd == "volume":
+                    self.volume = payload
+                    if self.is_playing:
+                        self._apply_volume()
+
             except Exception:
                 pass
-            self._mci_send(f"stop {self.ALIAS}")
-            self._mci_send(f"close {self.ALIAS}")
-            self.is_playing = False
-            self.status_message = "Đã dừng"
+            finally:
+                self._cmd_queue.task_done()
+
+    def play(self, sound_type=None, callback=None):
+        """Bắt đầu phát hoặc chuyển đổi sang âm thanh tập trung mới"""
+        if sound_type:
+            self.current_sound_type = sound_type
+        stype = self.current_sound_type
+        s_info = self.SOUND_TYPES.get(stype, {})
+        self.current_title = s_info.get("name", "Âm thanh tập trung")
+        self.status_message = f"Đang tải: {self.current_title}..."
+        self.is_playing = True
+
+        # Đẩy lệnh vào worker queue để dừng âm thanh cũ và phát ngay âm thanh mới
+        self._cmd_queue.put(("play", stype, callback))
+        return True
+
+    def stop(self, callback=None):
+        """Dừng phát âm thanh nền ngay lập tức"""
+        self.is_playing = False
+        self.status_message = "Đã dừng"
+        self._cmd_queue.put(("stop", None, callback))
 
     def set_volume(self, vol):
         """Thiết lập âm lượng (0 - 100)"""
         try:
             self.volume = max(0, min(100, int(vol)))
-            self._apply_volume()
             self.config.setdefault("focus_sound", {})["volume"] = self.volume
+            self._cmd_queue.put(("volume", self.volume, None))
         except Exception:
             pass
 
     def toggle(self, sound_type=None, callback=None):
         """Bật / Tắt âm thanh tập trung"""
         if self.is_playing:
-            self.stop()
-            if callback:
-                callback(False, "Đã dừng")
+            self.stop(callback)
             return False
         else:
             return self.play(sound_type, callback)

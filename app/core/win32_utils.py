@@ -4,9 +4,50 @@ Win32 Window styling and Global Hotkey listener
 import ctypes
 from ctypes import wintypes
 import threading
-from app.constants import GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT, MOD_NOREPEAT, VK_F8
+from app.constants import (
+    GWL_EXSTYLE,
+    WS_EX_LAYERED,
+    WS_EX_TRANSPARENT,
+    WS_EX_TOOLWINDOW,
+    WS_EX_APPWINDOW,
+    MOD_NOREPEAT,
+    VK_F8,
+)
 
 user32 = ctypes.windll.user32
+
+
+def hide_from_taskbar(tk_window):
+    """
+    Ẩn cửa sổ khỏi taskbar và danh sách Alt+Tab.
+
+    Tk trên Windows thường gắn WS_EX_APPWINDOW nên đồng hồ nổi vẫn có nút
+    taskbar dù đã overrideredirect. Gắn WS_EX_TOOLWINDOW và gỡ APPWINDOW,
+    rồi ẩn/hiện lại bằng Win32 để Explorer cập nhật (không đi qua withdraw
+    của Tk, tránh hiện lại thanh tiêu đề).
+    """
+    try:
+        tk_window.update_idletasks()
+        child = tk_window.winfo_id()
+        hwnd = user32.GetParent(child) or user32.GetAncestor(child, 2) or child
+        if not hwnd:
+            return
+
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & 0xFFFFFFFF
+        new_style = (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
+        if new_style == style:
+            return
+
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+        # Explorer chỉ bỏ nút taskbar khi cửa sổ được ẩn rồi hiện lại.
+        # Dùng ShowWindow thay vì withdraw của Tk để khỏi hiện thanh tiêu đề.
+        # SW_HIDE = 0, SW_SHOWNA = 8
+        user32.ShowWindow(hwnd, 0)
+        user32.ShowWindow(hwnd, 8)
+        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
+    except Exception:
+        pass
 
 
 def set_click_through(hwnd, enable=True):

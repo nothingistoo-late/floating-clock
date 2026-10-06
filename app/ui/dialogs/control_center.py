@@ -1318,8 +1318,7 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["click_through"] = False
             self.app.apply_click_through(False)
         self.app.save_config()
-        if not val:
-            self.app.root.attributes("-alpha", self.app.config.get("opacity", 0.90))
+        self.app._sync_autohide_alpha(force_full=not val)
 
     def _toggle_quote_setting(self):
         val = self.var_quote.get()

@@ -6,6 +6,10 @@ Constants and definitions for Top Floating Clock
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
+# Tool window: không nút taskbar, không xuất hiện trong Alt+Tab
+WS_EX_TOOLWINDOW = 0x00000080
+# App window: ép cửa sổ lên taskbar — cần gỡ bỏ
+WS_EX_APPWINDOW = 0x00040000
 
 # Win32 Hotkey Constants
 MOD_ALT = 0x0001
