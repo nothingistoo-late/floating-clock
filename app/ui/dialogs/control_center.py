@@ -233,6 +233,7 @@ class ControlCenterDialog(tk.Toplevel):
         self.app.config["target_time_str"] = today_dep
         self.app.config["target_time_label"] = f"Tan làm ({today_tag})"
         self.app.config["target_time_active"] = True
+        self.app.config["target_time_is_work"] = True
         self.app.switch_mode("target_time")
         self.app.save_config()
 
@@ -247,6 +248,7 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["target_time_str"] = tgt_str
             self.app.config["target_time_label"] = lbl
             self.app.config["target_time_active"] = True
+            self.app.config["target_time_is_work"] = False
             self.app.switch_mode("target_time")
             self.app.save_config()
         except Exception:
@@ -425,7 +427,7 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["weather"]["lon"] = lon
 
         self.app.save_config()
-        self.app.weather_mgr.fetch_weather(callback=lambda txt, d: self.app.update_extra_info_visibility(), dispatcher=self.app.root.after_idle)
+        self.app.weather_mgr.fetch_weather(callback=lambda txt, d: self.app.update_extra_info_visibility(), dispatcher=lambda fn: self.app.root.after(0, fn))
         messagebox.showinfo("Thành công", "Đã lưu cài đặt thời tiết!", parent=self)
 
     # ---------------- 🎧 TAB FOCUS SOUND ----------------
@@ -541,7 +543,7 @@ class ControlCenterDialog(tk.Toplevel):
                     self.lbl_sound_status.configure(text=f"Trạng thái: 🔴 {msg}", fg="#F87171")
                     self.btn_toggle_play_sound.configure(text="▶ BẬT ÂM THANH TẬP TRUNG", bg="#8B5CF6")
                 self.app.update_extra_info_visibility()
-            self.after_idle(_ui_update)
+            self.after(0, _ui_update)
 
         self.app.focus_sound_mgr.play(st, callback=_on_status)
 
@@ -1282,7 +1284,7 @@ class ControlCenterDialog(tk.Toplevel):
                 self.lbl_ai_status.configure(text=msg[:70], fg="#FCD34D")
                 self.app.current_quote = quote
 
-        self.app.ai_mgr.fetch_ai_quote("afternoon", callback=_on_result, dispatcher=self.app.root.after_idle)
+        self.app.ai_mgr.fetch_ai_quote("afternoon", callback=_on_result, dispatcher=lambda fn: self.app.root.after(0, fn))
 
     def _toggle_mini_mode_setting(self):
         val = self.var_mini_mode.get()

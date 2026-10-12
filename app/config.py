@@ -42,6 +42,7 @@ DEFAULT_CONFIG = {
     "target_time_str": "17:45:00",
     "target_time_label": "Tan làm",
     "target_time_active": True,
+    "target_time_is_work": True,         # Luôn tự động theo dõi lịch tan làm của ngày hôm nay
     "work_departure": {
         "start_time": "08:30",
         "mon_fri_time": "17:45",

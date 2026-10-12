@@ -114,4 +114,4 @@ class WeatherForecastDialog(tk.Toplevel):
                 self.lbl_desc.configure(text=f"{data.get('desc', '')} ({data.get('city', '')})")
                 self.lbl_wind.configure(text=f"💨 Tốc độ gió: {data.get('wind', 0)} km/h")
 
-        self.app.weather_mgr.fetch_weather(callback=_on_fetched, dispatcher=self.after_idle)
+        self.app.weather_mgr.fetch_weather(callback=_on_fetched, dispatcher=lambda fn: self.after(0, fn))

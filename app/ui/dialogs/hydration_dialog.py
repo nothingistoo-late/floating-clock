@@ -7,7 +7,8 @@ from app.messages import ALERT_MESSAGES
 
 class HydrationReminderDialog(tk.Toplevel):
     def __init__(self, master):
-        super().__init__(master)
+        real_master = getattr(master, "root", master)
+        super().__init__(real_master)
         self.withdraw()
         self.title(ALERT_MESSAGES["hydration_title"])
         self.attributes("-topmost", True)

@@ -21,10 +21,11 @@ def hide_from_taskbar(tk_window):
     """
     Ẩn cửa sổ khỏi taskbar và danh sách Alt+Tab.
 
-    Tk trên Windows thường gắn WS_EX_APPWINDOW nên đồng hồ nổi vẫn có nút
-    taskbar dù đã overrideredirect. Gắn WS_EX_TOOLWINDOW và gỡ APPWINDOW,
-    rồi ẩn/hiện lại bằng Win32 để Explorer cập nhật (không đi qua withdraw
-    của Tk, tránh hiện lại thanh tiêu đề).
+    Với cửa sổ Tkinter đã đặt overrideredirect(True), Windows mặc định đã là WS_POPUP
+    và không có nút trên taskbar. Hàm này chỉ đảm bảo gắn WS_EX_TOOLWINDOW và gỡ
+    WS_EX_APPWINDOW một cách an toàn mà không gọi user32.ShowWindow (SW_HIDE/SW_SHOWNA),
+    tránh làm hỏng DWM composite buffer của Tkinter (gây ra màn hình đen) hoặc vô tình
+    ẩn nhầm cửa sổ chính khi bong bóng thoại/dialog con xuất hiện.
     """
     try:
         tk_window.update_idletasks()
@@ -35,17 +36,8 @@ def hide_from_taskbar(tk_window):
 
         style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & 0xFFFFFFFF
         new_style = (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
-        if new_style == style:
-            return
-
-        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
-        # Explorer chỉ bỏ nút taskbar khi cửa sổ được ẩn rồi hiện lại.
-        # Dùng ShowWindow thay vì withdraw của Tk để khỏi hiện thanh tiêu đề.
-        # SW_HIDE = 0, SW_SHOWNA = 8
-        user32.ShowWindow(hwnd, 0)
-        user32.ShowWindow(hwnd, 8)
-        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
-        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
+        if new_style != style:
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
     except Exception:
         pass
 
@@ -124,3 +116,38 @@ class GlobalHotkeyManager:
                 self._thread.join(timeout=0.05)
             except Exception:
                 pass
+
+
+class SingleInstanceMutex:
+    """
+    Quản lý Named Mutex của Windows để đảm bảo chỉ có duy nhất một tiến trình
+    Floating Clock chạy tại một thời điểm (chống chạy trùng nhiều bản cùng lúc).
+    """
+    MUTEX_NAME = "Local\\TopFloatingClock_SingleInstance_Mutex"
+
+    def __init__(self):
+        self._mutex = None
+        self._kernel32 = ctypes.windll.kernel32
+
+    def is_already_running(self):
+        # 183 = ERROR_ALREADY_EXISTS trong Win32 API
+        self._mutex = self._kernel32.CreateMutexW(None, False, self.MUTEX_NAME)
+        last_error = self._kernel32.GetLastError()
+        if last_error == 183:
+            if self._mutex:
+                try:
+                    self._kernel32.CloseHandle(self._mutex)
+                except Exception:
+                    pass
+                self._mutex = None
+            return True
+        return False
+
+    def release(self):
+        if self._mutex:
+            try:
+                self._kernel32.CloseHandle(self._mutex)
+            except Exception:
+                pass
+            self._mutex = None
+
