@@ -5,7 +5,7 @@ from datetime import datetime
 import math
 import tkinter as tk
 from tkinter import colorchooser, messagebox, ttk
-from app.constants import CITY_COORDINATES
+from app.constants import APP_VERSION, CITY_COORDINATES
 from app.core.autostart import is_start_with_windows, set_start_with_windows
 from app.services.sound_service import sound_mgr
 from app.messages import HOLIDAYS_DATA
@@ -1250,6 +1250,44 @@ class ControlCenterDialog(tk.Toplevel):
         self.lbl_ai_status = tk.Label(ai_box, text="Trạng thái AI: Sẵn sàng", font=("Segoe UI", 8, "italic"), bg="#151a24", fg="#94A3B8")
         self.lbl_ai_status.grid(row=1, column=3, columnspan=2, sticky="w", padx=4, pady=4)
 
+        update_box = tk.LabelFrame(f, text="🚀 Cập Nhật Phần Mềm & Phiên Bản", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#38BDF8", padx=10, pady=8)
+        update_box.pack(fill="x", pady=(6, 0))
+
+        tk.Label(
+            update_box,
+            text=f"Phiên bản: {APP_VERSION}",
+            font=("Segoe UI", 9, "bold"),
+            bg="#151a24",
+            fg="#10B981"
+        ).pack(side="left", padx=(0, 10))
+
+        self.var_check_update = tk.BooleanVar(value=self.app.config.get("check_updates_on_startup", True))
+        tk.Checkbutton(
+            update_box,
+            text="Tự động kiểm tra bản mới khi khởi động",
+            variable=self.var_check_update,
+            font=("Segoe UI", 8),
+            bg="#151a24",
+            fg="#F8FAFC",
+            selectcolor="#1e2430",
+            activebackground="#151a24",
+            command=self._toggle_check_update_setting
+        ).pack(side="left", padx=6)
+
+        btn_check_upd = tk.Button(
+            update_box,
+            text="🔄 Kiểm tra ngay",
+            font=("Segoe UI", 8, "bold"),
+            bg="#059669",
+            fg="#FFFFFF",
+            relief="flat",
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=lambda: self.app.check_for_updates(interactive=True)
+        )
+        btn_check_upd.pack(side="right")
+
     def _select_mascot(self, mascot):
         val = "" if mascot == "None" else mascot
         self.app.config["mascot"] = val
@@ -1342,4 +1380,9 @@ class ControlCenterDialog(tk.Toplevel):
         val = self.var_sound.get()
         self.app.config["sound_enabled"] = val
         sound_mgr.sound_enabled = val
+        self.app.save_config()
+
+    def _toggle_check_update_setting(self):
+        val = self.var_check_update.get()
+        self.app.config["check_updates_on_startup"] = val
         self.app.save_config()
