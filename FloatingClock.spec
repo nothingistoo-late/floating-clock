@@ -38,6 +38,7 @@ a = Analysis(
         'subprocess',
         'datetime',
         'time',
+        'webbrowser',
     ],
     hookspath=[],
     hooksconfig={},

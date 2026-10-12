@@ -10,20 +10,24 @@ import tkinter as tk
 from tkinter import colorchooser, ttk
 
 from app.config import APP_DIR, BUNDLE_DIR, load_config, save_config
+from app.constants import APP_VERSION
 from app.core.salary_calculator import calculate_salary_info, get_payday_countdown_info
 from app.core.system_monitor import get_cpu_usage_percent, get_ram_usage_percent
 from app.core.win32_utils import GlobalHotkeyManager, hide_from_taskbar, set_click_through
 from app.services.ai_service import AIManager
 from app.services.sound_service import FocusSoundManager, sound_mgr
+from app.services.update_service import UpdateManager
 from app.services.weather_service import WeatherManager
 from app.ui.context_menu import ContextMenuBuilder
 from app.ui.dialogs.alert_dialog import AlertNotificationDialog
 from app.ui.dialogs.control_center import ControlCenterDialog
 from app.ui.dialogs.hydration_dialog import HydrationReminderDialog
 from app.ui.dialogs.task_dialog import QuickTaskDialog
+from app.ui.dialogs.update_dialog import UpdateNotificationDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
 from app.services.mascot_service import MascotManager
 from app.messages import ALERT_MESSAGES
+from tkinter import messagebox
 
 
 class FloatingClock:
@@ -36,6 +40,7 @@ class FloatingClock:
         self.focus_sound_mgr = FocusSoundManager(self.config)
         self.ai_mgr = AIManager(self.config)
         self.mascot_mgr = MascotManager(self.root, self.config)
+        self.update_mgr = UpdateManager(self.config)
         self._last_mascot_state = None
 
         # Global Hotkey Manager (Fix F8 click-through lock)
@@ -144,6 +149,10 @@ class FloatingClock:
         self.root.after(0, lambda: hide_from_taskbar(self.root))
         # auto_hide bật sẵn thì làm mờ ngay nếu chuột không nằm trên đồng hồ
         self.root.after(50, self._sync_autohide_alpha)
+
+        # Tự động kiểm tra bản cập nhật ngầm sau khi app khởi động xong
+        if self.config.get("check_updates_on_startup", True):
+            self.root.after(4000, lambda: self.check_for_updates(interactive=False))
 
     def save_config(self):
         try:
@@ -293,6 +302,49 @@ class FloatingClock:
             except Exception:
                 pass
         self._weather_dialog = WeatherForecastDialog(self)
+
+    def check_for_updates(self, interactive=False):
+        """Kiểm tra bản cập nhật mới từ GitHub Releases (chỉ tự động chạy ngầm 1 lần/ngày khi khởi động)"""
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if not interactive:
+            # Nếu là tự động kiểm tra ngầm, chỉ thực hiện nếu hôm nay chưa kiểm tra
+            last_checked = self.config.get("last_update_check_date", "")
+            if last_checked == today_str:
+                return
+
+        def _on_result(has_update, update_info, err):
+            if not err:
+                self.config["last_update_check_date"] = today_str
+                self.save_config()
+
+            if has_update and update_info:
+                if hasattr(self, "_update_dialog") and self._update_dialog:
+                    try:
+                        if self._update_dialog.winfo_exists():
+                            self._update_dialog.lift()
+                            self._update_dialog.focus_force()
+                            return
+                    except Exception:
+                        pass
+                self._update_dialog = UpdateNotificationDialog(self, update_info)
+            elif interactive:
+                if err:
+                    messagebox.showwarning(
+                        "Kiểm tra cập nhật",
+                        f"Không thể kết nối đến máy chủ GitHub:\n{err}",
+                        parent=self.root,
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Kiểm tra cập nhật",
+                        f"Bạn đang sử dụng phiên bản mới nhất ({APP_VERSION}) rồi nha! (づ｡◕‿‿◕｡)づ",
+                        parent=self.root,
+                    )
+
+        self.update_mgr.check_for_updates(
+            callback=_on_result,
+            dispatcher=lambda fn: self.root.after(0, fn),
+        )
 
     def toggle_autohide(self):
         new_val = not self.config.get("auto_hide", False)

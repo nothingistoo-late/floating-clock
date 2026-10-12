@@ -222,6 +222,10 @@ class ContextMenuBuilder:
             label=f"{'✓ ' if app.config['click_through'] else '   '}🖱️  Xuyên chuột [F8]",
             command=app.toggle_click_through
         )
+        menu.add_command(
+            label="🔄  Kiểm tra bản cập nhật...",
+            command=lambda: app.check_for_updates(interactive=True)
+        )
         menu.add_separator()
 
         # 7. ❌ ĐÓNG ỨNG DỤNG

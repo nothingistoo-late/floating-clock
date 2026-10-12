@@ -124,8 +124,12 @@ DEFAULT_CONFIG = {
         "enabled": False,
         "sound_type": "rain",
         "volume": 50
-    }
+    },
+    # Auto Check Updates from GitHub (Tự kiểm tra cập nhật)
+    "check_updates_on_startup": True,
+    "last_update_check_date": ""
 }
+
 
 
 def deep_merge(base, override):
