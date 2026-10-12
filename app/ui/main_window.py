@@ -173,14 +173,28 @@ class FloatingClock:
             dep_time = work_cfg.get("mon_fri_time", "17:45") + ":00"
         return dep_time, tag
 
+    @staticmethod
+    def _normalize_time_str(time_str, default="00:00:00"):
+        """Đảm bảo chuỗi giờ luôn chuẩn định dạng HH:MM:SS kể cả khi người dùng nhập HH:MM"""
+        if not time_str:
+            return default
+        parts = str(time_str).strip().split(":")
+        if len(parts) == 2:
+            return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}:00"
+        elif len(parts) == 3:
+            return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}:{parts[2].zfill(2)}"
+        return default
+
     def calculate_workday_progress(self, now):
         work_cfg = self.config.get("work_departure", {})
         start_str = work_cfg.get("start_time", "08:30")
         dep_time, _ = self.get_today_departure_info(now)
         try:
             today_str = now.strftime("%Y-%m-%d")
-            dt_start = datetime.strptime(f"{today_str} {start_str}:00", "%Y-%m-%d %H:%M:%S")
-            dt_end = datetime.strptime(f"{today_str} {dep_time}", "%Y-%m-%d %H:%M:%S")
+            norm_start = self._normalize_time_str(start_str, "08:30:00")
+            norm_dep = self._normalize_time_str(dep_time, "17:45:00")
+            dt_start = datetime.strptime(f"{today_str} {norm_start}", "%Y-%m-%d %H:%M:%S")
+            dt_end = datetime.strptime(f"{today_str} {norm_dep}", "%Y-%m-%d %H:%M:%S")
             total_sec = (dt_end - dt_start).total_seconds()
             if total_sec <= 0:
                 return 0.0, 0, 0
@@ -232,7 +246,7 @@ class FloatingClock:
                     self.quote_label.configure(text=quote)
                 self._check_and_resize(self.time_label.cget("text"), self.sub_label.cget("text"))
 
-        self.ai_mgr.fetch_ai_quote(ctx, callback=_on_quote_received, dispatcher=self.root.after_idle)
+        self.ai_mgr.fetch_ai_quote(ctx, callback=_on_quote_received, dispatcher=lambda fn: self.root.after(0, fn))
 
     def get_dynamic_color_by_seconds(self, remaining_sec, is_elapsed=False):
         if not self.config.get("dynamic_time_color", True):
@@ -630,7 +644,7 @@ class FloatingClock:
         st = self.config.get("focus_sound", {}).get("sound_type", "rain")
         self.focus_sound_mgr.toggle(
             sound_type=st,
-            callback=lambda ok, msg: self.root.after_idle(self.update_extra_info_visibility)
+            callback=lambda ok, msg: self.root.after(0, self.update_extra_info_visibility)
         )
         self.update_extra_info_visibility()
 
@@ -640,14 +654,14 @@ class FloatingClock:
         self.save_config()
         self.focus_sound_mgr.play(
             sound_type=sound_type,
-            callback=lambda ok, msg: self.root.after_idle(self.update_extra_info_visibility)
+            callback=lambda ok, msg: self.root.after(0, self.update_extra_info_visibility)
         )
         self.update_extra_info_visibility()
 
     def refresh_weather(self):
         self.weather_mgr.fetch_weather(
             callback=lambda txt, data: self.update_extra_info_visibility(),
-            dispatcher=self.root.after_idle
+            dispatcher=lambda fn: self.root.after(0, fn)
         )
 
     def update_extra_info_visibility(self):
@@ -1013,6 +1027,7 @@ class FloatingClock:
         self.config["target_time_str"] = today_dep
         self.config["target_time_label"] = f"Tan làm ({today_tag})"
         self.config["target_time_active"] = True
+        self.config["target_time_is_work"] = True
         self.switch_mode("target_time")
         self.save_config()
 
@@ -1283,16 +1298,29 @@ class FloatingClock:
     def check_target_time(self, now):
         if not self.config.get("target_time_active", False):
             return
-        tgt_str = self.config.get("target_time_str", "17:45:00")
+        is_work = self.config.get("target_time_is_work", True) or self.config.get("target_time_label", "").startswith("Tan làm")
+        today_str = now.strftime("%Y-%m-%d")
+        if is_work:
+            today_dep, today_tag = self.get_today_departure_info(now)
+            tgt_str = today_dep
+            lbl = f"Tan làm ({today_tag})"
+            if getattr(self, "_last_work_departure_alert_date", None) == today_str:
+                return
+        else:
+            tgt_str = self.config.get("target_time_str", "17:45:00")
+            lbl = self.config.get("target_time_label", "Tan làm")
+
         try:
-            today_str = now.strftime("%Y-%m-%d")
-            tgt_dt = datetime.strptime(f"{today_str} {tgt_str}", "%Y-%m-%d %H:%M:%S")
+            norm_tgt = self._normalize_time_str(tgt_str, "17:45:00")
+            tgt_dt = datetime.strptime(f"{today_str} {norm_tgt}", "%Y-%m-%d %H:%M:%S")
             diff = (tgt_dt - now).total_seconds()
             if -2 <= diff <= 1:
-                self.config["target_time_active"] = False
-                self.save_config()
+                if is_work:
+                    self._last_work_departure_alert_date = today_str
+                else:
+                    self.config["target_time_active"] = False
+                    self.save_config()
                 sound_mgr.play_alarm_loop("Đã đến giờ mục tiêu!")
-                lbl = self.config.get("target_time_label", "Tan làm")
                 AlertNotificationDialog(
                     self.root,
                     ALERT_MESSAGES["target_reached_title"].format(time_str=tgt_str[:5]),
@@ -1404,7 +1432,8 @@ class FloatingClock:
                 work_cfg = self.config.get("work_departure", {})
                 today_dep, _ = self.get_today_departure_info(now)
                 today_str = now.strftime("%Y-%m-%d")
-                dt_dep = datetime.strptime(f"{today_str} {today_dep}", "%Y-%m-%d %H:%M:%S")
+                norm_dep = self._normalize_time_str(today_dep, "17:45:00")
+                dt_dep = datetime.strptime(f"{today_str} {norm_dep}", "%Y-%m-%d %H:%M:%S")
                 rem_sec = (dt_dep - now).total_seconds()
                 fg_col = self.get_dynamic_color_by_seconds(rem_sec)
             except Exception:
@@ -1463,11 +1492,24 @@ class FloatingClock:
         self._check_and_resize(time_str, sub_txt)
 
     def _render_target_time_mode(self, now, mascot_prefix):
-        tgt_str = self.config.get("target_time_str", "17:45:00")
-        lbl = self.config.get("target_time_label", "Tan làm")
+        is_work = self.config.get("target_time_is_work", True) or self.config.get("target_time_label", "").startswith("Tan làm")
+        if is_work:
+            today_dep, today_tag = self.get_today_departure_info(now)
+            tgt_str = today_dep
+            lbl = f"Tan làm ({today_tag})"
+            if self.config.get("target_time_str") != tgt_str or self.config.get("target_time_label") != lbl:
+                self.config["target_time_str"] = tgt_str
+                self.config["target_time_label"] = lbl
+                self.config["target_time_is_work"] = True
+                self.save_config()
+        else:
+            tgt_str = self.config.get("target_time_str", "17:45:00")
+            lbl = self.config.get("target_time_label", "Tan làm")
+
         try:
             today_str = now.strftime("%Y-%m-%d")
-            tgt_dt = datetime.strptime(f"{today_str} {tgt_str}", "%Y-%m-%d %H:%M:%S")
+            norm_tgt = self._normalize_time_str(tgt_str, "17:45:00")
+            tgt_dt = datetime.strptime(f"{today_str} {norm_tgt}", "%Y-%m-%d %H:%M:%S")
             diff = (tgt_dt - now).total_seconds()
             if diff <= 0:
                 time_str = "🎉 00:00:00"

@@ -7,7 +7,8 @@ from app.services.sound_service import sound_mgr
 
 class AlertNotificationDialog(tk.Toplevel):
     def __init__(self, master, title_text, message_text, on_dismiss=None, on_snooze=None, on_restart=None):
-        super().__init__(master)
+        real_master = getattr(master, "root", master)
+        super().__init__(real_master)
         self.withdraw()
         self.title(title_text)
         self.attributes("-topmost", True)
