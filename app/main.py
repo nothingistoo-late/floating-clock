@@ -55,7 +55,8 @@ else:
     except Exception:
         pass
 
-from app.core.win32_utils import SingleInstanceMutex
+from app.core.autostart import repair_autostart_if_needed
+from app.core.win32_utils import SingleInstanceMutex, activate_existing_floating_clock
 from app.ui.main_window import FloatingClock
 
 
@@ -69,8 +70,28 @@ def main():
     # Kiểm tra chống chạy đè nhiều bản cùng lúc (Single Instance Lock)
     single_inst = SingleInstanceMutex()
     if single_inst.is_already_running():
-        # Đã có một cửa sổ Floating Clock đang hoạt động -> thoát êm
+        # Không thoát êm: kéo cửa sổ cũ lên (tránh trường hợp bản cũ bị ẩn/mờ nhìn như "mất")
+        restored = False
+        try:
+            restored = activate_existing_floating_clock()
+        except Exception:
+            pass
+        if not restored:
+            try:
+                messagebox.showinfo(
+                    "Floating Clock",
+                    "Floating Clock đang chạy rồi.\n"
+                    "Nếu không thấy đồng hồ: mở Task Manager tắt pythonw/FloatingClock rồi mở lại.",
+                )
+            except Exception:
+                pass
         return
+
+    # Sửa registry autostart nếu còn entry nhưng path exe/script đã mất
+    try:
+        repair_autostart_if_needed()
+    except Exception:
+        pass
 
     try:
         root = tk.Tk()

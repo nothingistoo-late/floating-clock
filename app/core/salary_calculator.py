@@ -19,6 +19,10 @@ def get_payday_countdown_info(now, payday_day=5):
         target_day = min(max(1, int(payday_day)), max_days_current)
         target_payday = datetime(year, month, target_day, 9, 0, 0)
 
+        # Cùng ngày nhận lương → còn 0 ngày (tránh ceil buổi sáng ra 1)
+        if now.date() == target_payday.date():
+            return 0, target_payday.strftime("%d/%m/%Y")
+
         if now > target_payday:
             if month == 12:
                 next_year = year + 1
@@ -30,9 +34,8 @@ def get_payday_countdown_info(now, payday_day=5):
             target_day_next = min(max(1, int(payday_day)), max_days_next)
             target_payday = datetime(next_year, next_month, target_day_next, 9, 0, 0)
 
-        diff_days = (target_payday - now).total_seconds() / 86400.0
-        days_int = int(math.ceil(diff_days))
-        return days_int, target_payday.strftime("%d/%m/%Y")
+        diff_days = (target_payday.date() - now.date()).days
+        return max(0, int(diff_days)), target_payday.strftime("%d/%m/%Y")
     except Exception:
         return 0, ""
 
@@ -70,10 +73,17 @@ def calculate_salary_info(now, config, get_today_departure_func):
     worked_hours = 0.0
     today_scheduled_hours = work_hours
     is_lunch = False
-
+    # Default an toàn — tránh UnboundLocalError nếu parse lịch thất bại
     try:
         dt_start = datetime.strptime(f"{today_str} {st_str}", "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        dt_start = datetime.strptime(f"{today_str} 08:30:00", "%Y-%m-%d %H:%M:%S")
+    try:
         dt_end = datetime.strptime(f"{today_str} {dep_time}", "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        dt_end = datetime.strptime(f"{today_str} 17:45:00", "%Y-%m-%d %H:%M:%S")
+
+    try:
         dt_lunch_start = datetime.strptime(f"{today_str} {ls_str}", "%Y-%m-%d %H:%M:%S")
         dt_lunch_end = datetime.strptime(f"{today_str} {le_str}", "%Y-%m-%d %H:%M:%S")
 
@@ -173,10 +183,15 @@ def calculate_salary_info(now, config, get_today_departure_func):
                 pass
         cycle_label = f"Tháng {now.month}"
 
+    # Cuối tuần / CN: không cộng lương hôm nay vào tổng tháng (trước đây chỉ đổi chữ nhưng vẫn cộng tiền)
+    is_weekend = (now.weekday() == 6) or (now.weekday() == 5 and work_days <= 22)
+    if is_weekend:
+        daily_earned = 0.0
+        worked_hours = 0.0
+
     month_earned = min(monthly, (past_work_days * daily_rate) + daily_earned)
     pct_month = (month_earned / monthly) * 100.0 if monthly > 0 else 0.0
 
-    is_weekend = (now.weekday() == 6) or (now.weekday() == 5 and work_days <= 22)
     is_hidden = sal_cfg.get("hidden", False)
 
     if is_hidden:

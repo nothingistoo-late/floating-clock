@@ -10,11 +10,81 @@ from app.constants import (
     WS_EX_TRANSPARENT,
     WS_EX_TOOLWINDOW,
     WS_EX_APPWINDOW,
+    SWP_CLICKTHROUGH_REFRESH,
     MOD_NOREPEAT,
     VK_F8,
 )
 
 user32 = ctypes.windll.user32
+
+# SetWindowPos HWND insert-after
+HWND_TOPMOST = -1
+# GetSystemMetrics virtual desktop
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
+SM_CXVIRTUALSCREEN = 78
+SM_CYVIRTUALSCREEN = 79
+
+
+def _get_exstyle(hwnd):
+    """Đọc extended style dưới dạng unsigned 32-bit (tránh số âm từ GetWindowLongW)."""
+    return user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & 0xFFFFFFFF
+
+
+def _set_exstyle(hwnd, style):
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style & 0xFFFFFFFF)
+
+
+def _refresh_frame(hwnd):
+    """Ép Windows áp dụng lại hit-test / non-client sau khi đổi extended style."""
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_CLICKTHROUGH_REFRESH)
+
+
+def resolve_tk_hwnds(tk_window_or_hwnd):
+    """
+    Trả về (child_hwnd, top_hwnd) cho cửa sổ Tk.
+    Nhận tk widget (có winfo_id) hoặc HWND int sẵn.
+    """
+    if hasattr(tk_window_or_hwnd, "winfo_id"):
+        child = int(tk_window_or_hwnd.winfo_id())
+    else:
+        child = int(tk_window_or_hwnd)
+    top = user32.GetParent(child) or user32.GetAncestor(child, 2) or child
+    return child, top
+
+
+def get_virtual_screen_rect():
+    """Hình chữ nhật desktop ảo (mọi monitor): (x, y, width, height)."""
+    try:
+        return (
+            int(user32.GetSystemMetrics(SM_XVIRTUALSCREEN)),
+            int(user32.GetSystemMetrics(SM_YVIRTUALSCREEN)),
+            int(user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)),
+            int(user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)),
+        )
+    except Exception:
+        return (0, 0, 1920, 1080)
+
+
+def force_topmost(tk_window):
+    """Ép cửa sổ luôn trên cùng bằng Win32 (ổn định hơn attributes sau sleep/fullscreen)."""
+    try:
+        _, top = resolve_tk_hwnds(tk_window)
+        if not top:
+            return
+        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+        user32.SetWindowPos(top, HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+    except Exception:
+        pass
+
+
+def is_window_visible_win32(tk_window):
+    """True nếu HWND toplevel đang IsWindowVisible."""
+    try:
+        _, top = resolve_tk_hwnds(tk_window)
+        return bool(top and user32.IsWindowVisible(top))
+    except Exception:
+        return True
 
 
 def hide_from_taskbar(tk_window):
@@ -29,32 +99,55 @@ def hide_from_taskbar(tk_window):
     """
     try:
         tk_window.update_idletasks()
-        child = tk_window.winfo_id()
-        hwnd = user32.GetParent(child) or user32.GetAncestor(child, 2) or child
+        _, hwnd = resolve_tk_hwnds(tk_window)
         if not hwnd:
             return
 
-        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & 0xFFFFFFFF
+        style = _get_exstyle(hwnd)
         new_style = (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
         if new_style != style:
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+            _set_exstyle(hwnd, new_style)
     except Exception:
         pass
 
 
 def set_click_through(hwnd, enable=True):
-    """Bật/tắt tính năng xuyên chuột (WS_EX_TRANSPARENT) cho cửa sổ (cả wrapper và top-level)"""
+    """
+    Bật/tắt xuyên chuột (WS_EX_TRANSPARENT).
+
+    Chỉ gắn lên HWND wrapper toplevel — KHÔNG đụng HWND con Tk.
+    Gắn + SetWindowPos(FRAMECHANGED) lên child làm đơ PhotoImage (mascot đứng hình).
+    Hit-test Windows đi từ toplevel nên chỉ cần wrapper.
+    """
     try:
-        top_hwnd = user32.GetAncestor(hwnd, 2) or user32.GetParent(hwnd) or hwnd
-        for h in set([hwnd, top_hwnd]):
-            if h:
-                style = user32.GetWindowLongW(h, GWL_EXSTYLE)
-                if enable:
-                    user32.SetWindowLongW(h, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
-                else:
-                    user32.SetWindowLongW(h, GWL_EXSTYLE, (style | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT)
+        _, top_hwnd = resolve_tk_hwnds(hwnd)
+        if not top_hwnd:
+            return False
+
+        style = _get_exstyle(top_hwnd)
+        if enable:
+            new_style = style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+        else:
+            new_style = (style | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT
+
+        if new_style != style:
+            _set_exstyle(top_hwnd, new_style)
+            # FRAMECHANGED 1 lần trên wrapper thôi — đủ để hit-test cập nhật
+            _refresh_frame(top_hwnd)
+
+        got = _get_exstyle(top_hwnd)
+        return bool(got & WS_EX_TRANSPARENT) == bool(enable)
     except Exception:
-        pass
+        return False
+
+
+def is_click_through_active(hwnd):
+    """True nếu wrapper toplevel đang có WS_EX_TRANSPARENT."""
+    try:
+        _, top = resolve_tk_hwnds(hwnd)
+        return bool(_get_exstyle(top) & WS_EX_TRANSPARENT)
+    except Exception:
+        return False
 
 
 class GlobalHotkeyManager:
@@ -70,6 +163,7 @@ class GlobalHotkeyManager:
         self._thread = None
         self._thread_id = None
         self._running = False
+        self.f8_registered = False
 
     def start(self):
         if self._running:
@@ -84,7 +178,8 @@ class GlobalHotkeyManager:
         registered = user32.RegisterHotKey(None, self.HOTKEY_ID_F8, MOD_NOREPEAT, VK_F8)
         if not registered:
             # Fallback without MOD_NOREPEAT for older Windows versions
-            user32.RegisterHotKey(None, self.HOTKEY_ID_F8, 0, VK_F8)
+            registered = user32.RegisterHotKey(None, self.HOTKEY_ID_F8, 0, VK_F8)
+        self.f8_registered = bool(registered)
 
         msg = wintypes.MSG()
         while self._running:
@@ -103,6 +198,7 @@ class GlobalHotkeyManager:
             user32.DispatchMessageW(ctypes.byref(msg))
 
         user32.UnregisterHotKey(None, self.HOTKEY_ID_F8)
+        self.f8_registered = False
 
     def stop(self):
         self._running = False
@@ -116,6 +212,53 @@ class GlobalHotkeyManager:
                 self._thread.join(timeout=0.05)
             except Exception:
                 pass
+
+
+def activate_existing_floating_clock():
+    """
+    Tìm cửa sổ Floating Clock đang chạy (kể cả bị ẩn/mờ) rồi hiện + đưa lên trên.
+    Dùng khi user mở lại trong lúc single-instance đang chặn process mới.
+    """
+    found = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    def _enum(hwnd, _lparam):
+        try:
+            if not user32.IsWindow(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            title = ""
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value or ""
+            # Title do root.title() — vẫn có trên HWND wrapper dù overrideredirect
+            if "Floating" in title and "Clock" in title:
+                found.append(hwnd)
+        except Exception:
+            pass
+        return True
+
+    try:
+        user32.EnumWindows(_enum, 0)
+    except Exception:
+        return False
+
+    if not found:
+        return False
+
+    SW_SHOW = 5
+    SW_RESTORE = 9
+    for hwnd in found:
+        try:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            user32.ShowWindow(hwnd, SW_SHOW)
+            # HWND_TOPMOST, NOMOVE|NOSIZE|SHOWWINDOW
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+    return True
 
 
 class SingleInstanceMutex:
