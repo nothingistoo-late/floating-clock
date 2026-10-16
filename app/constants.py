@@ -11,6 +11,15 @@ WS_EX_TOOLWINDOW = 0x00000080
 # App window: ép cửa sổ lên taskbar — cần gỡ bỏ
 WS_EX_APPWINDOW = 0x00040000
 
+# SetWindowPos flags — bắt buộc SWP_FRAMECHANGED sau khi đổi WS_EX_TRANSPARENT
+# nếu không Windows đôi khi giữ hit-test cũ (xuyên chuột "có style nhưng bấm vẫn dính")
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+SWP_FRAMECHANGED = 0x0020
+SWP_CLICKTHROUGH_REFRESH = SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+
 # Win32 Hotkey Constants
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002

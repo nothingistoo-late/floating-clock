@@ -1,0 +1,18 @@
+Ambient focus sounds bundled with Floating Clock
+================================================
+
+Source: Mixkit — free sound effects (royalty-free)
+License: Mixkit Sound Effects Free License
+  https://mixkit.co/license/
+  Attribution appreciated but not required.
+
+Files (preview/loop assets used as in-app ambient background):
+  rain.mp3          — Mixkit rain ambience (asset id 2394)
+  ocean.mp3         — Freesound CC0 "Calm ocean waves" by SamsterBirdies
+                      https://freesound.org/people/SamsterBirdies/sounds/578524/
+  night_forest.mp3  — Mixkit forest ambience (asset id 1210)
+  cafe.mp3          — Mixkit restaurant/crowd ambience (asset id 444)
+  white_noise.mp3   — Mixkit white noise (asset id 1177)
+
+These clips are incorporated into Floating Clock as part of a larger
+end product (desktop utility), not redistributed as standalone stock.

@@ -3,7 +3,7 @@ Context Menu Builder for Top Floating Clock
 """
 from datetime import datetime
 import tkinter as tk
-from app.core.autostart import is_start_with_windows, set_start_with_windows
+from app.core.autostart import is_start_with_windows
 from app.core.salary_calculator import get_payday_countdown_info
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
 
@@ -210,7 +210,7 @@ class ContextMenuBuilder:
         is_autostart = is_start_with_windows()
         menu.add_command(
             label=f"{'✓ ' if is_autostart else '   '}🚀  Khởi động cùng Windows",
-            command=lambda: set_start_with_windows(not is_autostart)
+            command=app.toggle_windows_autostart
         )
 
         menu.add_command(

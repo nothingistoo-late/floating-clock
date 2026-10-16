@@ -110,42 +110,49 @@ from app.config import APP_DIR, BUNDLE_DIR
 class FocusSoundManager:
     """
     Quản lý âm thanh tập trung chất lượng cao (Mưa rào, Sóng biển, Quán Cafe, Rừng đêm, Tiếng ồn trắng)
-    Sử dụng luồng thực thi âm thanh chuyên dụng (Dedicated Audio Worker) để điều khiển Windows MCI,
-    đảm bảo chuyển đổi tức thì giữa các âm thanh, không bị phát chồng chéo và dừng sạch sẽ 100%.
+    Ưu tiên file ghi âm thật (MP3/WAV trong assets/sounds, nguồn Mixkit royalty-free),
+    chỉ fallback sang WAV tổng hợp nếu thiếu file.
+    Dùng Dedicated Audio Worker + Windows MCI để chuyển track sạch, không chồng âm.
     """
     ALIAS = "FC_FOCUS_BGM"
 
+    # Đổi SYNTH_VER khi cải thiện thuật toán fallback để bỏ cache WAV cũ.
+    SYNTH_VER = 4
+
     SOUND_TYPES = {
         "rain": {
-            "name": "Mưa rào êm dịu (Rainfall)",
+            "name": "Mưa rào",
             "icon": "🌧️"
         },
         "ocean": {
-            "name": "Sóng biển dạt dào (Ocean Waves)",
+            "name": "Sóng biển",
             "icon": "🌊"
         },
         "cafe": {
-            "name": "Quán cà phê chill (Cafe Ambient)",
+            "name": "Không gian quán",
             "icon": "☕"
         },
         "night_forest": {
-            "name": "Rừng đêm tĩnh lặng & Tiếng dế",
+            "name": "Rừng yên tĩnh",
             "icon": "🌲"
         },
         "white_noise": {
-            "name": "Tiếng ồn trắng (White Noise)",
+            "name": "White noise",
             "icon": "📻"
         },
-        "pink_noise": {
-            "name": "Tiếng ồn hồng thư giãn (Pink Noise)",
-            "icon": "🌸"
-        }
     }
 
     def __init__(self, config):
         self.config = config
         self.is_playing = False
-        self.current_sound_type = config.get("focus_sound", {}).get("sound_type", "rain")
+        st = config.get("focus_sound", {}).get("sound_type", "rain")
+        if st not in self.SOUND_TYPES:
+            st = "rain"
+            try:
+                config.setdefault("focus_sound", {})["sound_type"] = st
+            except Exception:
+                pass
+        self.current_sound_type = st
         self.current_title = ""
         self.status_message = "Chưa phát"
         self.volume = config.get("focus_sound", {}).get("volume", 50)
@@ -194,9 +201,24 @@ class FocusSoundManager:
         except Exception:
             pass
 
+    def _resolve_sound_file(self, sound_type):
+        """
+        Tìm file âm thanh thật đã đóng gói (MP3/WAV).
+        Ưu tiên .mp3 (Mixkit) rồi .wav; không tạo synth tại đây.
+        """
+        for ext in (".mp3", ".wav", ".m4a"):
+            path = os.path.join(self.sounds_dir, f"{sound_type}{ext}")
+            try:
+                if os.path.isfile(path) and os.path.getsize(path) > 10000:
+                    return path
+            except OSError:
+                continue
+        return None
+
     def generate_synth_wav(self, sound_type="rain", duration_sec=8, sample_rate=44100):
-        """Tạo file WAV chất lượng cao, êm dịu, không bị rè kim loại"""
-        target_file = os.path.join(self.sounds_dir, f"{sound_type}.wav")
+        """Fallback: tạo WAV procedural nếu thiếu file ghi âm thật"""
+        # Cache riêng để không đè lên file ghi âm thật (rain.mp3, ...)
+        target_file = os.path.join(self.sounds_dir, f"{sound_type}_synth_v{self.SYNTH_VER}.wav")
         if os.path.exists(target_file) and os.path.getsize(target_file) > 10000:
             return target_file
 
@@ -251,22 +273,7 @@ class FocusSoundManager:
                         val = max(-0.8, min(0.8, lp1 * 1.8 + cricket))
                         raw_data.extend(struct.pack('<h', int(val * 32767)))
 
-                elif sound_type == "pink_noise":
-                    b0, b1, b2, b3, b4, b5, b6 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-                    for _ in range(num_samples):
-                        white = random.uniform(-1.0, 1.0)
-                        b0 = 0.99886 * b0 + white * 0.0555179
-                        b1 = 0.99332 * b1 + white * 0.0750759
-                        b2 = 0.96900 * b2 + white * 0.1538520
-                        b3 = 0.86650 * b3 + white * 0.3104856
-                        b4 = 0.55000 * b4 + white * 0.5329522
-                        b5 = -0.7616 * b5 - white * 0.0168980
-                        pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362
-                        b6 = white * 0.115926
-                        val = max(-0.8, min(0.8, pink * 0.12))
-                        raw_data.extend(struct.pack('<h', int(val * 32767)))
-
-                else:  # white_noise
+                else:  # white_noise (và mọi loại còn lại khi fallback synth)
                     for _ in range(num_samples):
                         white = random.uniform(-0.35, 0.35)
                         raw_data.extend(struct.pack('<h', int(white * 32767)))
@@ -309,8 +316,12 @@ class FocusSoundManager:
 
                     s_info = self.SOUND_TYPES.get(stype, {})
                     display_title = s_info.get("name", "Âm thanh tập trung")
-                    target_file = self.generate_synth_wav(stype)
+                    # Ưu tiên bản ghi âm thật; synth chỉ khi thiếu file
+                    target_file = self._resolve_sound_file(stype)
+                    if not target_file:
+                        target_file = self.generate_synth_wav(stype)
 
+                    played = False
                     if target_file and os.path.exists(target_file):
                         norm_p = os.path.abspath(target_file).replace("\\", "/")
                         err, _ = self._mci_send(f'open "{norm_p}" type mpegvideo alias {self.ALIAS}')
@@ -318,32 +329,29 @@ class FocusSoundManager:
                             self._mci_send(f"set {self.ALIAS} time format ms")
                             self._apply_volume()
                             self._mci_send(f"play {self.ALIAS} repeat")
-                            self.is_playing = True
-                            self.current_sound_type = stype
-                            self.current_title = display_title
-                            self.status_message = f"Đang phát: {display_title}"
-                            if callback:
-                                try:
-                                    callback(True, self.status_message)
-                                except Exception:
-                                    pass
-                            continue
-                        else:
-                            # Fallback winsound nếu hệ thống không cho phép mở mpegvideo
+                            played = True
+                        elif target_file.lower().endswith(".wav"):
+                            # winsound chỉ hỗ trợ WAV, không phát được MP3
                             try:
-                                winsound.PlaySound(target_file, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
-                                self.is_playing = True
-                                self.current_sound_type = stype
-                                self.current_title = display_title
-                                self.status_message = f"Đang phát: {display_title}"
-                                if callback:
-                                    try:
-                                        callback(True, self.status_message)
-                                    except Exception:
-                                        pass
-                                continue
+                                winsound.PlaySound(
+                                    target_file,
+                                    winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP,
+                                )
+                                played = True
                             except Exception:
                                 pass
+
+                    if played:
+                        self.is_playing = True
+                        self.current_sound_type = stype
+                        self.current_title = display_title
+                        self.status_message = f"Đang phát: {display_title}"
+                        if callback:
+                            try:
+                                callback(True, self.status_message)
+                            except Exception:
+                                pass
+                        continue
 
                     self.is_playing = False
                     self.status_message = "Không thể phát âm thanh"

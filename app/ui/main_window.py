@@ -11,9 +11,18 @@ from tkinter import colorchooser, ttk
 
 from app.config import APP_DIR, BUNDLE_DIR, load_config, save_config
 from app.constants import APP_VERSION
+from app.core.autostart import is_start_with_windows, set_start_with_windows
 from app.core.salary_calculator import calculate_salary_info, get_payday_countdown_info
 from app.core.system_monitor import get_cpu_usage_percent, get_ram_usage_percent
-from app.core.win32_utils import GlobalHotkeyManager, hide_from_taskbar, set_click_through
+from app.core.win32_utils import (
+    GlobalHotkeyManager,
+    force_topmost,
+    get_virtual_screen_rect,
+    hide_from_taskbar,
+    is_click_through_active,
+    is_window_visible_win32,
+    set_click_through,
+)
 from app.services.ai_service import AIManager
 from app.services.sound_service import FocusSoundManager, sound_mgr
 from app.services.update_service import UpdateManager
@@ -44,7 +53,10 @@ class FloatingClock:
         self._last_mascot_state = None
 
         # Global Hotkey Manager (Fix F8 click-through lock)
-        self.hotkey_mgr = GlobalHotkeyManager(on_f8_pressed=lambda: self.root.after(0, self.toggle_click_through))
+        # Debounce F8: tránh queue nhiều after() khi giữ/spam phím → config lệch với style thật
+        self._click_through_toggle_ts = 0.0
+        self._last_visibility_check = 0.0
+        self.hotkey_mgr = GlobalHotkeyManager(on_f8_pressed=lambda: self.root.after(0, self._on_f8_hotkey))
         self.hotkey_mgr.start()
 
         self.current_mode = self.config.get("mode", "clock")
@@ -131,8 +143,8 @@ class FloatingClock:
         if self.config.get("click_through", False) and self.config.get("auto_hide", False):
             self.config["auto_hide"] = False
 
-        if self.config.get("click_through", False):
-            self.apply_click_through(True)
+        # Click-through lúc này cửa sổ còn withdraw — chỉ đánh dấu, apply thật sau khi map
+        self._pending_click_through = bool(self.config.get("click_through", False))
 
         # First weather fetch
         if self.config.get("weather", {}).get("enabled", True):
@@ -146,7 +158,7 @@ class FloatingClock:
 
         self.update_loop()
         # Chạy sau deiconify ở main(): Win32 style bị Tk ghi đè lúc map cửa sổ.
-        self.root.after(0, lambda: hide_from_taskbar(self.root))
+        self.root.after(0, self._on_window_mapped)
         # auto_hide bật sẵn thì làm mờ ngay nếu chuột không nằm trên đồng hồ
         self.root.after(50, self._sync_autohide_alpha)
 
@@ -262,9 +274,9 @@ class FloatingClock:
             return self.config.get("text_color", "#00FFCC")
 
         hrs = max(0.0, float(remaining_sec) / 3600.0)
-        if hrs >= 8.0:
+        if hrs > 6.0:
             return "#EF4444"
-        elif hrs >= 5.0:
+        elif hrs > 3.0:
             return "#F97316"
         elif hrs >= 2.0:
             return "#FBBF24"
@@ -291,6 +303,7 @@ class FloatingClock:
             except Exception:
                 pass
         self._task_dialog = QuickTaskDialog(self)
+        self._bind_dialog_restore(self._task_dialog)
 
     def open_weather_dialog(self):
         if hasattr(self, "_weather_dialog") and self._weather_dialog:
@@ -302,6 +315,7 @@ class FloatingClock:
             except Exception:
                 pass
         self._weather_dialog = WeatherForecastDialog(self)
+        self._bind_dialog_restore(self._weather_dialog)
 
     def check_for_updates(self, interactive=False):
         """Kiểm tra bản cập nhật mới từ GitHub Releases (chỉ tự động chạy ngầm 1 lần/ngày khi khởi động)"""
@@ -327,18 +341,26 @@ class FloatingClock:
                     except Exception:
                         pass
                 self._update_dialog = UpdateNotificationDialog(self, update_info)
+                try:
+                    self._update_dialog.bind(
+                        "<Destroy>",
+                        lambda e: self.root.after(50, self.ensure_window_visible) if e.widget is self._update_dialog else None,
+                    )
+                except Exception:
+                    pass
+                self.root.after(80, self.ensure_window_visible)
             elif interactive:
                 if err:
-                    messagebox.showwarning(
+                    self._safe_messagebox(
+                        "showwarning",
                         "Kiểm tra cập nhật",
                         f"Không thể kết nối đến máy chủ GitHub:\n{err}",
-                        parent=self.root,
                     )
                 else:
-                    messagebox.showinfo(
+                    self._safe_messagebox(
+                        "showinfo",
                         "Kiểm tra cập nhật",
                         f"Bạn đang sử dụng phiên bản mới nhất ({APP_VERSION}) rồi nha! (づ｡◕‿‿◕｡)づ",
-                        parent=self.root,
                     )
 
         self.update_mgr.check_for_updates(
@@ -356,7 +378,74 @@ class FloatingClock:
             self.apply_click_through(False)
 
         self.save_config()
-        self._sync_autohide_alpha(force_full=not new_val)
+        # Hủy timer cũ + ép áp dụng sau khi menu đóng (reset flag kẹt)
+        self._cancel_autohide_timer()
+        self.root.after(200, lambda v=new_val: self._apply_autohide_after_toggle(v))
+
+    def _apply_autohide_after_toggle(self, enabled):
+        """Sau bật/tắt từ menu: clear flag kẹt rồi sync alpha đúng trạng thái."""
+        self._heal_menu_open_flag(force_clear=True)
+        if not enabled or not self.config.get("auto_hide", False):
+            self._sync_autohide_alpha(force_full=True)
+        else:
+            self._sync_autohide_alpha(force_full=False)
+
+    def _cancel_autohide_timer(self):
+        pending = getattr(self, "_autohide_after", None)
+        if pending:
+            try:
+                self.root.after_cancel(pending)
+            except Exception:
+                pass
+        self._autohide_after = None
+
+    def _heal_menu_open_flag(self, force_clear=False):
+        """
+        Sửa _is_menu_open bị kẹt True (Unmap menu đôi khi không chạy sau vài lần bật/tắt).
+        Khi flag kẹt, auto-hide ngừng dim mãi.
+        """
+        if force_clear:
+            self._is_menu_open = False
+            self._current_menu = None
+            return
+        if not getattr(self, "_is_menu_open", False):
+            return
+        menu = getattr(self, "_current_menu", None)
+        alive = False
+        if menu is not None:
+            try:
+                alive = bool(menu.winfo_exists()) and bool(menu.winfo_ismapped())
+            except Exception:
+                alive = False
+        if not alive:
+            self._is_menu_open = False
+            self._current_menu = None
+
+    def _full_opacity(self):
+        try:
+            op = float(self.config.get("opacity", 0.90))
+        except Exception:
+            op = 0.90
+        return max(0.15, min(1.0, op))
+
+    def _dimmed_opacity(self):
+        """Mờ rõ khi rời chuột, vẫn đủ nhìn (~40% sàn)."""
+        full = self._full_opacity()
+        return max(0.40, full * 0.40)
+
+    def _set_window_alpha(self, alpha):
+        try:
+            a = max(0.15, min(1.0, float(alpha)))
+            # Tránh gọi attributes lặp vô ích (giảm giật); vẫn ép khi lệch
+            try:
+                cur = float(self.root.attributes("-alpha"))
+                if abs(cur - a) < 0.02:
+                    return
+            except Exception:
+                pass
+            self.root.attributes("-alpha", a)
+        except Exception:
+            pass
 
     def _pointer_over_clock(self):
         """Chuột còn nằm trong khung đồng hồ hay đã ra ngoài hẳn."""
@@ -371,40 +460,39 @@ class FloatingClock:
     def _sync_autohide_alpha(self, force_full=False):
         """Đặt alpha theo vị trí chuột. force_full dùng khi tắt tính năng."""
         self._autohide_after = None
+        self._heal_menu_open_flag()
         if force_full or not self.config.get("auto_hide", False):
-            try:
-                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
-            except Exception:
-                pass
+            self._set_window_alpha(self._full_opacity())
             return
         if getattr(self, "_is_menu_open", False):
             return
         try:
             if self._pointer_over_clock():
-                self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+                self._set_window_alpha(self._full_opacity())
             else:
-                self.root.attributes("-alpha", max(0.22, self.config.get("opacity", 0.90) * 0.35))
+                self._set_window_alpha(self._dimmed_opacity())
         except Exception:
             pass
 
     def on_mouse_enter(self, event):
-        if self.config.get("auto_hide", False):
-            self._sync_autohide_alpha()
-
-    def on_mouse_leave(self, event):
-        # Tk bắn <Leave> cả khi chuột chỉ đi từ nền cửa sổ vào label con.
-        # Hoãn một nhịp rồi đo lại vị trí chuột, chỉ làm mờ khi đã ra ngoài khung.
-        if getattr(self, "_is_menu_open", False):
-            return
         if not self.config.get("auto_hide", False):
             return
-        pending = getattr(self, "_autohide_after", None)
-        if pending:
-            try:
-                self.root.after_cancel(pending)
-            except Exception:
-                pass
-        self._autohide_after = self.root.after(30, self._sync_autohide_alpha)
+        self._heal_menu_open_flag()
+        if getattr(self, "_is_menu_open", False):
+            return
+        self._cancel_autohide_timer()
+        self._set_window_alpha(self._full_opacity())
+
+    def on_mouse_leave(self, event):
+        # Enter/Leave KHÔNG bubble — bind từng widget.
+        # Hoãn rồi đo pointer: chỉ dim khi chuột đã ra ngoài cả khung đồng hồ.
+        if not self.config.get("auto_hide", False):
+            return
+        self._heal_menu_open_flag()
+        if getattr(self, "_is_menu_open", False):
+            return
+        self._cancel_autohide_timer()
+        self._autohide_after = self.root.after(60, self._sync_autohide_alpha)
 
     def toggle_mini_mode(self):
         self.config["mini_mode"] = not self.config.get("mini_mode", False)
@@ -790,16 +878,25 @@ class FloatingClock:
         self.quote_label.bind("<Double-Button-1>", lambda e: "break")
         self.quote_label.bind("<Button-3>", self.show_context_menu)
 
-        # Auto-hide bindings (Enter/Leave cần lắng nghe trên toàn cửa sổ root)
-        self.root.bind("<Enter>", self.on_mouse_enter)
-        self.root.bind("<Leave>", self.on_mouse_leave)
-
         # Mascot interactions: kéo thả, click kêu meow, chặn double-click đè lên mini mode
         self.mascot_label.bind("<ButtonPress-1>", self.start_drag)
         self.mascot_label.bind("<B1-Motion>", self.do_drag)
         self.mascot_label.bind("<ButtonRelease-1>", self._on_mascot_release)
         self.mascot_label.bind("<Double-Button-1>", lambda e: "break")
         self.mascot_label.bind("<Button-3>", self.show_context_menu)
+
+        # Auto-hide: Enter/Leave không bubble lên root — bind mọi widget nhìn thấy
+        hover_widgets = [
+            self.root, self.frame, self.main_row, self.time_label, self.sub_label,
+            self.date_label, self.quote_label, self.mascot_label,
+            self.salary_daily_label, self.salary_month_label, self.task_label,
+            self.sys_info_label, self.weather_label, self.sound_status_label,
+        ]
+        if hasattr(self, "pomo_ctrl_frame"):
+            hover_widgets.append(self.pomo_ctrl_frame)
+        for w in hover_widgets:
+            w.bind("<Enter>", self.on_mouse_enter, add="+")
+            w.bind("<Leave>", self.on_mouse_leave, add="+")
 
         # Keyboard shortcuts (F8 được quản lý độc quyền bởi Win32 GlobalHotkeyManager)
         self.root.bind("<p>", lambda e: self.toggle_mascot())
@@ -1028,33 +1125,62 @@ class FloatingClock:
             self.toggle_pomodoro()
 
     def _close_context_menu(self):
+        old = getattr(self, "_current_menu", None)
         self._is_menu_open = False
+        self._current_menu = None
         try:
-            if self._current_menu:
-                self._current_menu.unpost()
+            if old:
+                old.unpost()
         except Exception:
             pass
-        self._current_menu = None
 
     def show_context_menu(self, event):
-        # 1. Đóng menu cũ nếu có
+        """Menu chuột phải — giữ logic đơn giản, không đụng topmost/alpha của đồng hồ."""
         self._close_context_menu()
-
-        # 2. Đánh dấu đang mở menu để tránh on_mouse_leave làm giật alpha
         self._is_menu_open = True
+        self._menu_generation = getattr(self, "_menu_generation", 0) + 1
+        gen = self._menu_generation
 
-        # 3. Tạo menu trực tiếp từ root để giữ nguyên focus chuẩn của Windows
         menu = ContextMenuBuilder.build(self, parent=self.root)
         self._current_menu = menu
 
         def _on_menu_dismiss():
+            # Chỉ nhận Unmap của đúng generation hiện tại (tránh race bật/tắt nhiều lần)
+            if getattr(self, "_menu_generation", 0) != gen:
+                return
+            if self._current_menu is not None and self._current_menu is not menu:
+                return
             self._is_menu_open = False
-            self._current_menu = None
-            # Khôi phục độ trong suốt theo vị trí chuột sau khi menu đóng
-            self._sync_autohide_alpha()
+            if self._current_menu is menu:
+                self._current_menu = None
+            self.root.after(80, self._sync_autohide_alpha)
 
-        menu.bind("<Unmap>", lambda e: self.root.after(100, _on_menu_dismiss))
-        menu.tk_popup(event.x_root, event.y_root)
+        menu.bind("<Unmap>", lambda e: self.root.after(50, _on_menu_dismiss))
+
+        # Kẹp trong màn hình để khỏi tràn đáy (ước lượng đơn giản)
+        try:
+            end_idx = menu.index("end")
+            n = 0 if end_idx is None else int(end_idx) + 1
+        except Exception:
+            n = 18
+        mh, mw = max(120, n * 28 + 20), 340
+        x, y = int(event.x_root), int(event.y_root)
+        try:
+            vx, vy, vw, vh = get_virtual_screen_rect()
+            if y + mh > vy + vh - 8:
+                y = max(vy + 8, y - mh)
+            if x + mw > vx + vw - 8:
+                x = max(vx + 8, vx + vw - mw - 8)
+        except Exception:
+            pass
+
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            try:
+                menu.grab_release()
+            except Exception:
+                pass
         return "break"
 
     def open_control_center(self, initial_tab=0):
@@ -1072,6 +1198,7 @@ class FloatingClock:
             except Exception:
                 pass
         self._ctrl_dialog = ControlCenterDialog(self, initial_tab=initial_tab)
+        self._bind_dialog_restore(self._ctrl_dialog)
 
     def activate_today_departure(self):
         now = datetime.now()
@@ -1118,6 +1245,9 @@ class FloatingClock:
         self.save_config()
 
     def start_timer(self):
+        # Restart / Start khi remaining đã về 0 phải nạp lại duration — tránh loop báo thức
+        if self.timer_remaining <= 0:
+            self.timer_remaining = max(1, int(self.timer_duration) or 300)
         self.timer_state = "running"
         self.timer_last_tick = time.time()
         if self.alert_dialog and self.alert_dialog.winfo_exists():
@@ -1150,8 +1280,8 @@ class FloatingClock:
             self.root,
             ALERT_MESSAGES["timer_finished_title"],
             ALERT_MESSAGES["timer_finished_body"],
-            on_dismiss=lambda: None,
-            on_restart=lambda: self.start_timer()
+            on_dismiss=self._dialog_closed_then(),
+            on_restart=self._dialog_closed_then(self.start_timer)
         )
 
     # ---------------- ⏱️ STOPWATCH LOGIC ----------------
@@ -1214,11 +1344,17 @@ class FloatingClock:
         self.pomo_last_tick = time.time()
         self._update_pomo_ctrl_ui()
 
+    def _pomo_cycles(self):
+        try:
+            return max(1, int(self.config.get("pomo_cycles", 4) or 4))
+        except Exception:
+            return 4
+
     def skip_pomodoro_stage(self):
         self.pomo_running = False
         if self.pomo_stage == "work":
             self.pomo_cycle_count += 1
-            if self.pomo_cycle_count % self.config.get("pomo_cycles", 4) == 0:
+            if self.pomo_cycle_count % self._pomo_cycles() == 0:
                 self.start_pomodoro_break(is_long=True)
             else:
                 self.start_pomodoro_break(is_long=False)
@@ -1256,7 +1392,7 @@ class FloatingClock:
         if self.pomo_stage == "work":
             self.pomo_cycle_count += 1
             sound_mgr.play_pomo_break()
-            if self.pomo_cycle_count % self.config.get("pomo_cycles", 4) == 0:
+            if self.pomo_cycle_count % self._pomo_cycles() == 0:
                 msg = ALERT_MESSAGES["pomo_long_break_body"].format(cycle=self.pomo_cycle_count)
                 is_long = True
             else:
@@ -1267,7 +1403,7 @@ class FloatingClock:
                 self.root,
                 ALERT_MESSAGES["pomo_work_complete_title"],
                 msg,
-                on_dismiss=lambda: self.start_pomodoro_break(is_long)
+                on_dismiss=self._dialog_closed_then(lambda: self.start_pomodoro_break(is_long))
             )
         else:
             sound_mgr.play_pomo_break()
@@ -1276,25 +1412,36 @@ class FloatingClock:
                 self.root,
                 ALERT_MESSAGES["pomo_break_complete_title"],
                 msg,
-                on_dismiss=lambda: self.start_pomodoro_work()
+                on_dismiss=self._dialog_closed_then(lambda: self.start_pomodoro_work())
             )
 
     # ---------------- ⏰ ALARMS CHECKER ----------------
     def check_alarms(self, now):
         cur_hm = now.strftime("%H:%M")
-        cur_min_val = now.minute
-
-        if cur_min_val == self.last_alarm_checked_min:
+        # Dedup theo (ngày + HH:MM) để không miss sau sleep và không bắn lại trong cùng phút
+        check_key = f"{now.strftime('%Y-%m-%d')} {cur_hm}"
+        if check_key == getattr(self, "_last_alarm_check_key", ""):
             return
-        self.last_alarm_checked_min = cur_min_val
+        self._last_alarm_check_key = check_key
+        self.last_alarm_checked_min = now.minute
 
         alarms = self.config.get("alarms", [])
-        for idx, alm in enumerate(alarms):
+        changed = False
+        for alm in list(alarms):
             if alm.get("enabled", False) and alm.get("time") == cur_hm:
                 self.trigger_alarm_alert(alm)
                 if not alm.get("repeat", True):
-                    alm["enabled"] = False
-                    self.save_config()
+                    # One-shot / snooze: gỡ hẳn khỏi list sau khi kêu (tránh phình JSON)
+                    if alm.get("is_snooze") or alm.get("id") == "__snooze__":
+                        try:
+                            alarms.remove(alm)
+                        except ValueError:
+                            alm["enabled"] = False
+                    else:
+                        alm["enabled"] = False
+                    changed = True
+        if changed:
+            self.save_config()
 
     def trigger_alarm_alert(self, alm):
         sound_mgr.play_alarm_loop(alm.get("label", "Báo thức"))
@@ -1306,21 +1453,29 @@ class FloatingClock:
             snooze_dt = datetime.now() + timedelta(minutes=5)
             snooze_time = snooze_dt.strftime("%H:%M")
             snooze_lbl = ALERT_MESSAGES["alarm_snooze_label"].format(label=label_txt)
-            self.config.setdefault("alarms", []).append({
-                "id": int(time.time()),
+            alarms = self.config.setdefault("alarms", [])
+            # Chỉ giữ 1 entry snooze — ghi đè thay vì append mãi
+            existing = next((a for a in alarms if a.get("is_snooze") or a.get("id") == "__snooze__"), None)
+            payload = {
+                "id": "__snooze__",
                 "time": snooze_time,
                 "label": snooze_lbl,
                 "enabled": True,
-                "repeat": False
-            })
+                "repeat": False,
+                "is_snooze": True,
+            }
+            if existing:
+                existing.update(payload)
+            else:
+                alarms.append(payload)
             self.save_config()
 
         AlertNotificationDialog(
             self.root,
             ALERT_MESSAGES["alarm_title"].format(time_str=time_txt),
             ALERT_MESSAGES["alarm_body"].format(time_str=time_txt, label=label_txt),
-            on_dismiss=lambda: None,
-            on_snooze=snooze_action
+            on_dismiss=self._dialog_closed_then(),
+            on_snooze=self._dialog_closed_then(snooze_action)
         )
 
     # ---------------- 💧 WATER REMINDER CHECKER ----------------
@@ -1343,6 +1498,10 @@ class FloatingClock:
             sound_mgr.play_water_chime()
             try:
                 self._hydration_dialog = HydrationReminderDialog(self.root)
+                self._hydration_dialog.bind(
+                    "<Destroy>",
+                    lambda e: self.root.after(50, self.ensure_window_visible) if e.widget is self._hydration_dialog else None,
+                )
             except Exception:
                 pass
 
@@ -1350,9 +1509,14 @@ class FloatingClock:
     def check_target_time(self, now):
         if not self.config.get("target_time_active", False):
             return
-        is_work = self.config.get("target_time_is_work", True) or self.config.get("target_time_label", "").startswith("Tan làm")
+        # Chỉ tin cờ target_time_is_work — không heuristic theo nhãn "Tan làm"
+        # (tránh ghi đè mốc tùy chỉnh có nhãn bắt đầu bằng "Tan làm")
+        is_work = bool(self.config.get("target_time_is_work", True))
         today_str = now.strftime("%Y-%m-%d")
         if is_work:
+            # Chủ nhật không có ca làm → không báo tan làm
+            if now.weekday() == 6:
+                return
             today_dep, today_tag = self.get_today_departure_info(now)
             tgt_str = today_dep
             lbl = f"Tan làm ({today_tag})"
@@ -1366,7 +1530,8 @@ class FloatingClock:
             norm_tgt = self._normalize_time_str(tgt_str, "17:45:00")
             tgt_dt = datetime.strptime(f"{today_str} {norm_tgt}", "%Y-%m-%d %H:%M:%S")
             diff = (tgt_dt - now).total_seconds()
-            if -2 <= diff <= 1:
+            # Cho phép bắt kịp tối đa 10 phút sau mốc (sleep/lag) — cửa sổ ±2s trước đây dễ miss
+            if -600 <= diff <= 1:
                 if is_work:
                     self._last_work_departure_alert_date = today_str
                 else:
@@ -1377,8 +1542,146 @@ class FloatingClock:
                     self.root,
                     ALERT_MESSAGES["target_reached_title"].format(time_str=tgt_str[:5]),
                     ALERT_MESSAGES["target_reached_body"].format(time_str=tgt_str[:5], label=lbl),
-                    on_dismiss=lambda: None
+                    on_dismiss=self._dialog_closed_then()
                 )
+        except Exception:
+            pass
+
+    def _dialog_closed_then(self, *callbacks):
+        """Chạy callback rồi kéo đồng hồ hiện lại (tránh mất cửa sổ sau Toplevel/messagebox)."""
+        def _runner(*_args):
+            for cb in callbacks:
+                if not cb:
+                    continue
+                try:
+                    cb()
+                except Exception:
+                    pass
+            try:
+                self.root.after(50, self.ensure_window_visible)
+            except Exception:
+                pass
+        return _runner
+
+    def _bind_dialog_restore(self, dialog):
+        """Khi đóng Toplevel con, khôi phục đồng hồ nổi (bug Tk overrideredirect trên Windows)."""
+        if not dialog:
+            return
+        try:
+            dialog.bind(
+                "<Destroy>",
+                lambda e, d=dialog: self.root.after(50, self.ensure_window_visible) if e.widget is d else None,
+            )
+        except Exception:
+            pass
+
+    def _safe_messagebox(self, kind, title, message):
+        """
+        messagebox với parent overrideredirect trên Windows dễ withdraw cửa sổ chính
+        sau khi đóng hộp thoại — luôn khôi phục hiển thị sau đó.
+        """
+        fn = getattr(messagebox, kind, None)
+        if not fn:
+            return None
+        try:
+            return fn(title, message, parent=self.root)
+        finally:
+            self.root.after(50, self.ensure_window_visible)
+
+    def _clamp_on_screen(self, margin=24):
+        """Nếu đồng hồ nằm hoàn toàn ngoài desktop ảo (tháo monitor / đổi DPI) thì kéo lại vào."""
+        try:
+            self.root.update_idletasks()
+            x = self.root.winfo_x()
+            y = self.root.winfo_y()
+            w = max(self.root.winfo_width(), self.frame.winfo_reqwidth() + 12, 40)
+            h = max(self.root.winfo_height(), self.frame.winfo_reqheight() + 4, 20)
+            vx, vy, vw, vh = get_virtual_screen_rect()
+            if vw <= 0 or vh <= 0:
+                return False
+
+            fully_off = (x + w < vx + margin) or (x > vx + vw - margin) or (y + h < vy + margin) or (y > vy + vh - margin)
+            if not fully_off:
+                return False
+
+            new_x = min(max(x, vx + margin), vx + vw - w - margin)
+            new_y = min(max(y, vy + margin), vy + vh - h - margin)
+            # Fallback nếu size lớn hơn cả desktop
+            if new_x < vx:
+                new_x = vx + margin
+            if new_y < vy:
+                new_y = vy + margin
+            self.root.geometry(f"{w}x{h}+{int(new_x)}+{int(new_y)}")
+            self.config["x"] = int(new_x)
+            self.config["y"] = int(new_y)
+            return True
+        except Exception:
+            return False
+
+    def ensure_window_visible(self, restore_alpha=False):
+        """
+        Chống đồng hồ 'tự biến mất': withdraw sau dialog, mất topmost sau sleep/fullscreen,
+        alpha về 0, hoặc tọa độ lệch khỏi mọi màn hình. Không có nút taskbar nên phải tự kéo lại.
+        """
+        if getattr(self, "_is_closing", False):
+            return
+        # Đang mở context menu: không ép topmost kẻo đè menu xuống dưới đồng hồ
+        if getattr(self, "_is_menu_open", False):
+            return
+        try:
+            if not self.root.winfo_exists():
+                return
+
+            need_remap = False
+            try:
+                if self.root.state() == "withdrawn":
+                    need_remap = True
+            except Exception:
+                pass
+            try:
+                if not self.root.winfo_viewable():
+                    need_remap = True
+            except Exception:
+                pass
+            if not is_window_visible_win32(self.root):
+                need_remap = True
+
+            if need_remap:
+                self.root.deiconify()
+                hide_from_taskbar(self.root)
+                # Không gọi lại set_click_through ở đây — SetWindowPos lặp làm đơ mascot
+
+            # Kích thước đổ sập về 1px (hiếm, sau lỗi layout) → đo lại
+            try:
+                if self.root.winfo_width() < 20 or self.root.winfo_height() < 10:
+                    self.adjust_size_and_position(initial=False)
+            except Exception:
+                pass
+
+            clamped = self._clamp_on_screen()
+            if clamped:
+                try:
+                    self.save_config()
+                except Exception:
+                    pass
+
+            # Topmost nhẹ: chỉ Tk attributes thường xuyên; Win32 khi vừa remap
+            try:
+                self.root.attributes("-topmost", True)
+            except Exception:
+                pass
+            if need_remap:
+                force_topmost(self.root)
+
+            if restore_alpha:
+                self._sync_autohide_alpha()
+            else:
+                try:
+                    alpha = float(self.root.attributes("-alpha"))
+                    if alpha <= 0.05:
+                        self._sync_autohide_alpha()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1392,12 +1695,36 @@ class FloatingClock:
             now = datetime.now()
             cur_sec = int(now.timestamp())
 
+            # Mỗi ~4s kiểm tra cửa sổ còn hiện không (sau sleep, dialog, đổi monitor...)
+            if cur_sec - int(getattr(self, "_last_visibility_check", 0)) >= 4:
+                self._last_visibility_check = cur_sec
+                self.ensure_window_visible()
+
             self.check_alarms(now)
             self.check_target_time(now)
             self.check_water_reminder()
+            # Timer / Pomodoro phải đếm dù đang xem mode khác (trước đây chỉ tick khi render mode đó)
+            self._tick_timer_and_pomodoro()
 
-            # Rotate quote every 45s
-            if time.time() - self.last_quote_update_time > 45:
+            # Auto-hide: poll pointer — nguồn chính, tự heal flag menu kẹt
+            if self.config.get("auto_hide", False):
+                now_ts = time.time()
+                if now_ts - getattr(self, "_last_autohide_poll_ts", 0) >= 0.30:
+                    self._last_autohide_poll_ts = now_ts
+                    self._heal_menu_open_flag()
+                    if not getattr(self, "_is_menu_open", False):
+                        self._sync_autohide_alpha()
+
+            # Rotate quote: offline ~45s; có AI key thì theo auto_refresh_min
+            ai_cfg = self.config.get("ai_quotes", {})
+            if ai_cfg.get("enabled", True) and str(ai_cfg.get("api_key", "")).strip():
+                try:
+                    quote_interval = max(60, int(ai_cfg.get("auto_refresh_min", 15) or 15) * 60)
+                except Exception:
+                    quote_interval = 900
+            else:
+                quote_interval = 45
+            if time.time() - self.last_quote_update_time > quote_interval:
                 self.request_next_quote()
 
             # Weather update check (every 30m by default)
@@ -1495,9 +1822,8 @@ class FloatingClock:
 
         self.time_label.configure(text=time_str, fg=fg_col)
 
-        active_alarms = [a for a in self.config.get("alarms", []) if a.get("enabled", False)]
-        if active_alarms:
-            next_alm = sorted(active_alarms, key=lambda x: x.get("time", ""))[0]
+        next_alm = self._get_next_upcoming_alarm(now)
+        if next_alm:
             sub_txt = f"{mascot_prefix}🕒 CLOCK  •  ⏰ {next_alm.get('time', '')}"
         else:
             sub_txt = f"{mascot_prefix}🕒 CLOCK"
@@ -1511,7 +1837,8 @@ class FloatingClock:
 
         self._check_and_resize(time_str, sub_txt)
 
-    def _render_timer_mode(self, mascot_prefix):
+    def _tick_timer_and_pomodoro(self):
+        """Cập nhật đếm ngược timer/pomodoro ngay cả khi đang xem clock / target time."""
         now_ts = time.time()
         if self.timer_state == "running":
             delta = now_ts - self.timer_last_tick
@@ -1521,6 +1848,15 @@ class FloatingClock:
                 self.timer_remaining = 0
                 self.trigger_timer_finished()
 
+        if self.pomo_running:
+            delta = now_ts - self.pomo_last_tick
+            self.pomo_last_tick = now_ts
+            self.pomo_remaining -= delta
+            if self.pomo_remaining <= 0:
+                self.pomo_remaining = 0
+                self.trigger_pomodoro_stage_complete()
+
+    def _render_timer_mode(self, mascot_prefix):
         rem = max(0, int(math.ceil(self.timer_remaining)))
         h = rem // 3600
         m = (rem % 3600) // 60
@@ -1543,8 +1879,22 @@ class FloatingClock:
         self.sub_label.configure(text=sub_txt, fg="#38BDF8")
         self._check_and_resize(time_str, sub_txt)
 
+    def _get_next_upcoming_alarm(self, now):
+        """Báo thức sắp tới theo giờ thực (không sort lexicographic sai lúc tối)."""
+        active = [a for a in self.config.get("alarms", []) if a.get("enabled", False) and a.get("time")]
+        if not active:
+            return None
+        cur = now.strftime("%H:%M")
+        upcoming = sorted(
+            [a for a in active if str(a.get("time", "")) >= cur],
+            key=lambda x: str(x.get("time", "")),
+        )
+        if upcoming:
+            return upcoming[0]
+        return sorted(active, key=lambda x: str(x.get("time", "")))[0]
+
     def _render_target_time_mode(self, now, mascot_prefix):
-        is_work = self.config.get("target_time_is_work", True) or self.config.get("target_time_label", "").startswith("Tan làm")
+        is_work = bool(self.config.get("target_time_is_work", True))
         if is_work:
             today_dep, today_tag = self.get_today_departure_info(now)
             tgt_str = today_dep
@@ -1552,7 +1902,6 @@ class FloatingClock:
             if self.config.get("target_time_str") != tgt_str or self.config.get("target_time_label") != lbl:
                 self.config["target_time_str"] = tgt_str
                 self.config["target_time_label"] = lbl
-                self.config["target_time_is_work"] = True
                 self.save_config()
         else:
             tgt_str = self.config.get("target_time_str", "17:45:00")
@@ -1599,17 +1948,7 @@ class FloatingClock:
         self._check_and_resize(time_str, sub_txt)
 
     def _render_pomodoro_mode(self, mascot_prefix):
-        now_ts = time.time()
-        if self.pomo_running:
-            delta = now_ts - self.pomo_last_tick
-            self.pomo_last_tick = now_ts
-            self.pomo_remaining -= delta
-            if self.pomo_remaining <= 0:
-                self.pomo_remaining = 0
-                self.trigger_pomodoro_stage_complete()
-        else:
-            self.pomo_last_tick = now_ts
-
+        # Tick đã chạy ở update_loop._tick_timer_and_pomodoro — chỉ render UI
         rem = max(0, int(math.ceil(self.pomo_remaining)))
         m = rem // 60
         s = rem % 60
@@ -1681,6 +2020,8 @@ class FloatingClock:
                 x = self.config["x"]
                 y = self.config["y"]
             self.root.geometry(f"{req_w}x{req_h}+{x}+{y}")
+            # Config cũ có thể lưu tọa độ màn hình đã tháo → kéo vào desktop ảo
+            self.root.after(100, self._clamp_on_screen)
         else:
             cur_w = self.root.winfo_width()
             cur_h = self.root.winfo_height()
@@ -1697,7 +2038,12 @@ class FloatingClock:
         self.save_config()
 
     def pick_custom_color(self):
-        col = colorchooser.askcolor(color=self.config["text_color"], title="Chọn màu chữ")[1]
+        col = None
+        try:
+            col = colorchooser.askcolor(color=self.config["text_color"], title="Chọn màu chữ")[1]
+        finally:
+            # askcolor trên Windows hay làm cửa sổ overrideredirect biến mất sau khi đóng
+            self.root.after(50, self.ensure_window_visible)
         if col:
             self.set_text_color(col)
 
@@ -1716,7 +2062,43 @@ class FloatingClock:
         self.config["locked"] = not self.config["locked"]
         self.save_config()
 
+    def toggle_windows_autostart(self):
+        """Bật/tắt khởi động cùng Windows từ context menu — có feedback khi fail."""
+        want = not is_start_with_windows()
+        ok = set_start_with_windows(want)
+        actual = is_start_with_windows()
+        if not ok or actual != want:
+            self._safe_messagebox(
+                "showerror",
+                "Khởi động cùng Windows",
+                "Không cập nhật được autostart.\nPath app có thể đã đổi hoặc không ghi được Registry.",
+            )
+        else:
+            self._safe_messagebox(
+                "showinfo",
+                "Khởi động cùng Windows",
+                "Đã bật tự khởi động cùng Windows!" if want else "Đã tắt tự khởi động cùng Windows!",
+            )
+
+    def _on_window_mapped(self):
+        """Sau deiconify: ẩn taskbar rồi gắn lại click-through (nếu có) cho đúng hit-test."""
+        try:
+            hide_from_taskbar(self.root)
+        except Exception:
+            pass
+        if getattr(self, "_pending_click_through", False) or self.config.get("click_through", False):
+            self.apply_click_through(True)
+            self._pending_click_through = False
+
+    def _on_f8_hotkey(self):
+        """Hotkey F8 toàn cục — có debounce để không đảo trạng thái 2 lần liên tiếp."""
+        now_ts = time.time()
+        if now_ts - getattr(self, "_click_through_toggle_ts", 0) < 0.25:
+            return
+        self.toggle_click_through()
+
     def toggle_click_through(self):
+        self._click_through_toggle_ts = time.time()
         new_val = not self.config.get("click_through", False)
         self.config["click_through"] = new_val
 
@@ -1725,17 +2107,49 @@ class FloatingClock:
             self.config["auto_hide"] = False
             self.root.attributes("-alpha", self.config.get("opacity", 0.90))
 
-        self.apply_click_through(new_val)
+        ok = self.apply_click_through(new_val)
+        # Nếu Win32 không áp được style, rollback config để UI/menu không nói dối
+        if not ok:
+            self.config["click_through"] = not new_val
+            try:
+                self.apply_click_through(not new_val)
+            except Exception:
+                pass
+        elif new_val:
+            # Đợi hotkey thread đăng ký xong rồi mới cảnh báo (tránh race lúc mới start)
+            self.root.after(400, self._warn_if_f8_unavailable)
+
         self.save_config()
+
+    def _warn_if_f8_unavailable(self):
+        """Cảnh báo một lần nếu đang xuyên chuột mà F8 bị app khác chiếm — tránh kẹt không tắt được."""
+        if not self.config.get("click_through", False):
+            return
+        if getattr(self.hotkey_mgr, "f8_registered", False):
+            return
+        if getattr(self, "_warned_f8_missing", False):
+            return
+        self._warned_f8_missing = True
+        self._safe_messagebox(
+            "showwarning",
+            "Xuyên chuột",
+            "Đã bật xuyên chuột nhưng phím F8 đang bị app khác chiếm.\n"
+            "Muốn tắt lại: sửa \"click_through\": false trong file cấu hình rồi mở lại app.",
+        )
 
     def apply_click_through(self, enable):
         try:
             hwnd = self.root.winfo_id()
-            set_click_through(hwnd, enable)
-            # Khôi phục độ mờ chuẩn theo cấu hình
-            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            ok = set_click_through(hwnd, enable)
+            # Giữ alpha (LAYERED); không retry SetWindowPos liên tục — dễ đơ mascot
+            self._set_window_alpha(self._full_opacity())
+            try:
+                self.update_mascot_sprite(force=True)
+            except Exception:
+                pass
+            return bool(ok) or (bool(enable) == is_click_through_active(hwnd))
         except Exception:
-            pass
+            return False
 
     def reset_to_top_center(self):
         self.root.update_idletasks()

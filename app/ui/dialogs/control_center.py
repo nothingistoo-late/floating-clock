@@ -658,7 +658,8 @@ class ControlCenterDialog(tk.Toplevel):
                 m = int(h.get("month", 1))
                 d = int(h.get("day", 1))
                 dt = datetime(now.year, m, d)
-                if dt < now:
+                # So sánh theo ngày — sáng ngày lễ vẫn hiện "0 ngày", không nhảy sang năm sau
+                if dt.date() < now.date():
                     dt = datetime(now.year + 1, m, d)
                 computed_events.append((h.get("name", "Dịp lễ"), dt, idx))
             except Exception:
@@ -666,7 +667,7 @@ class ControlCenterDialog(tk.Toplevel):
 
         # Sort theo thứ tự thời gian gần nhất
         for name, dt, idx in sorted(computed_events, key=lambda x: x[1]):
-            diff_d = int(math.ceil((dt - now).total_seconds() / 86400.0))
+            diff_d = max(0, (dt.date() - now.date()).days)
             self.tree_milestones.insert("", "end", values=(name, f"⏳ {diff_d} ngày", dt.strftime("%d/%m/%Y")), tags=(str(idx),))
 
     def _add_custom_holiday(self):
@@ -1338,11 +1339,19 @@ class ControlCenterDialog(tk.Toplevel):
     def _toggle_autostart_setting(self):
         val = self.var_autostart.get()
         success = set_start_with_windows(val)
-        if success:
+        # Đồng bộ lại checkbox theo trạng thái thật (path chết / ghi registry fail)
+        actual = is_start_with_windows()
+        self.var_autostart.set(actual)
+        if success and actual == val:
             msg = "Đã bật tự khởi động cùng Windows!" if val else "Đã tắt tự khởi động cùng Windows!"
             messagebox.showinfo("Thành công", msg, parent=self)
         else:
-            messagebox.showerror("Lỗi", "Không thể ghi vào Windows Registry!", parent=self)
+            messagebox.showerror(
+                "Lỗi",
+                "Không thể cập nhật khởi động cùng Windows.\n"
+                "Path ứng dụng có thể đã đổi hoặc không ghi được Registry.",
+                parent=self,
+            )
 
     def _toggle_sys_monitor_setting(self):
         val = self.var_sys_monitor.get()
@@ -1358,7 +1367,7 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["click_through"] = False
             self.app.apply_click_through(False)
         self.app.save_config()
-        self.app._sync_autohide_alpha(force_full=not val)
+        self.app.root.after(120, lambda v=val: self.app._apply_autohide_after_toggle(v))
 
     def _toggle_quote_setting(self):
         val = self.var_quote.get()
