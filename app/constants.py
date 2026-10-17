@@ -73,7 +73,7 @@ from app.messages import MOTIVATIONAL_QUOTES
 DEFAULT_QUOTES = MOTIVATIONAL_QUOTES
 
 # 🚀 Thông tin phiên bản & Cập nhật GitHub
-APP_VERSION = "v2.4.0"
+APP_VERSION = "v2.5.0"
 GITHUB_REPO = "nothingistoo-late/floating-clock"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
