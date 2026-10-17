@@ -89,7 +89,19 @@ DEFAULT_CONFIG = {
         "work_days": 22,
         "work_hours": 8.0,
         "calc_cycle": "calendar_month",  # "calendar_month" hoặc "payday_cycle"
-        "hidden": False
+        "hidden": False,
+        # Tăng ca: bấm nút sau tan làm → nhập giờ bắt đầu → đếm realtime × hệ số
+        "ot_multiplier_weekday": 1.5,
+        "ot_multiplier_sunday": 2.0,
+        "ot_multiplier_holiday": 3.0,
+        "ot_start": None,           # "HH:MM:SS" hoặc null
+        "ot_date": "",              # YYYY-MM-DD — reset session khi đổi ngày
+        # BHXH NLĐ (ước lượng realtime)
+        "deduct_bhxh": False,
+        "bhxh_base": 0,             # 0 = dùng monthly
+        "bhxh_rate_pct": 10.5,
+        # Hiển thị trên đồng hồ: "gross" | "net"
+        "clock_display": "gross",
     },
     # Focus MIT Task (Mục tiêu quan trọng trong ngày)
     "focus_task": {

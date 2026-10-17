@@ -22,7 +22,7 @@ class ControlCenterDialog(tk.Toplevel):
         self.configure(bg="#0f131a")
         self.resizable(False, False)
 
-        w, h = 640, 520
+        w, h = 660, 620
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         x = (sw - w) // 2
@@ -296,6 +296,65 @@ class ControlCenterDialog(tk.Toplevel):
 
         tk.Label(grid_f, text="💡 Giờ nghỉ trưa được quản lý tại tab 'Giờ làm & Tan làm'", font=("Segoe UI", 8, "italic"), bg="#151a24", fg="#94A3B8").grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 4))
 
+        # --- Hệ số tăng ca ---
+        ot_box = tk.LabelFrame(f, text="⏱ Hệ số tăng ca", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#FBBF24", padx=8, pady=6)
+        ot_box.pack(fill="x", pady=(4, 4))
+        ot_grid = tk.Frame(ot_box, bg="#151a24")
+        ot_grid.pack(fill="x")
+        tk.Label(ot_grid, text="Ngày thường:", font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC").grid(row=0, column=0, sticky="w", pady=2)
+        self.ent_ot_wd = tk.Entry(ot_grid, font=("Segoe UI", 9), width=8, bg="#1e2430", fg="#FBBF24", insertbackground="#fff", relief="flat")
+        self.ent_ot_wd.insert(0, str(sal_cfg.get("ot_multiplier_weekday", 1.5)))
+        self.ent_ot_wd.grid(row=0, column=1, sticky="w", padx=8, pady=2)
+        tk.Label(ot_grid, text="Chủ nhật:", font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC").grid(row=0, column=2, sticky="w", padx=(12, 0), pady=2)
+        self.ent_ot_sun = tk.Entry(ot_grid, font=("Segoe UI", 9), width=8, bg="#1e2430", fg="#FBBF24", insertbackground="#fff", relief="flat")
+        self.ent_ot_sun.insert(0, str(sal_cfg.get("ot_multiplier_sunday", 2.0)))
+        self.ent_ot_sun.grid(row=0, column=3, sticky="w", padx=8, pady=2)
+        tk.Label(ot_grid, text="Ngày lễ:", font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC").grid(row=1, column=0, sticky="w", pady=2)
+        self.ent_ot_hol = tk.Entry(ot_grid, font=("Segoe UI", 9), width=8, bg="#1e2430", fg="#FBBF24", insertbackground="#fff", relief="flat")
+        self.ent_ot_hol.insert(0, str(sal_cfg.get("ot_multiplier_holiday", 3.0)))
+        self.ent_ot_hol.grid(row=1, column=1, sticky="w", padx=8, pady=2)
+        tk.Label(ot_box, text="Sau tan làm bấm「Bắt đầu tăng ca」trên đồng hồ → nhập giờ bắt đầu.", font=("Segoe UI", 7, "italic"), bg="#151a24", fg="#64748B").pack(anchor="w", pady=(4, 0))
+
+        # --- BHXH ---
+        bhxh_box = tk.LabelFrame(f, text="🏥 BHXH NLĐ (ước lượng)", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#38BDF8", padx=8, pady=6)
+        bhxh_box.pack(fill="x", pady=(4, 4))
+        self.var_deduct_bhxh = tk.BooleanVar(value=sal_cfg.get("deduct_bhxh", False))
+        tk.Checkbutton(
+            bhxh_box, text="Trừ BHXH người lao động khi tính net",
+            variable=self.var_deduct_bhxh, font=("Segoe UI", 8, "bold"),
+            bg="#151a24", fg="#38BDF8", selectcolor="#1e2430", activebackground="#151a24"
+        ).pack(anchor="w")
+        bh_row = tk.Frame(bhxh_box, bg="#151a24")
+        bh_row.pack(fill="x", pady=(4, 0))
+        tk.Label(bh_row, text="Mức lương đóng BHXH:", font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC").pack(side="left")
+        self.ent_bhxh_base = tk.Entry(bh_row, font=("Segoe UI", 9), width=14, bg="#1e2430", fg="#38BDF8", insertbackground="#fff", relief="flat")
+        _bhxh_base = float(sal_cfg.get("bhxh_base") or 0)
+        if _bhxh_base <= 0:
+            _bhxh_base = float(sal_cfg.get("monthly", 15000000))
+        self.ent_bhxh_base.insert(0, f"{int(_bhxh_base):,}".replace(",", "."))
+        self.ent_bhxh_base.pack(side="left", padx=8)
+        tk.Label(bh_row, text="% NLĐ:", font=("Segoe UI", 8), bg="#151a24", fg="#F8FAFC").pack(side="left", padx=(8, 0))
+        self.ent_bhxh_rate = tk.Entry(bh_row, font=("Segoe UI", 9), width=6, bg="#1e2430", fg="#38BDF8", insertbackground="#fff", relief="flat")
+        self.ent_bhxh_rate.insert(0, str(sal_cfg.get("bhxh_rate_pct", 10.5)))
+        self.ent_bhxh_rate.pack(side="left", padx=6)
+
+        # --- Hiển thị đồng hồ gross/net ---
+        disp_f = tk.Frame(f, bg="#151a24")
+        disp_f.pack(fill="x", pady=(4, 2))
+        tk.Label(disp_f, text="Trên đồng hồ hiện:", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#F8FAFC").pack(side="left")
+        self.var_clock_display = tk.StringVar(value=sal_cfg.get("clock_display", "gross"))
+        tk.Radiobutton(disp_f, text="Gross", variable=self.var_clock_display, value="gross", font=("Segoe UI", 8), bg="#151a24", fg="#34D399", selectcolor="#1e2430", activebackground="#151a24").pack(side="left", padx=8)
+        tk.Radiobutton(disp_f, text="Net (đã trừ BHXH)", variable=self.var_clock_display, value="net", font=("Segoe UI", 8), bg="#151a24", fg="#38BDF8", selectcolor="#1e2430", activebackground="#151a24").pack(side="left")
+
+        # --- Preview gross/net ---
+        prev_box = tk.LabelFrame(f, text="👁 Xem trước (live)", font=("Segoe UI", 9, "bold"), bg="#151a24", fg="#A78BFA", padx=8, pady=6)
+        prev_box.pack(fill="x", pady=(4, 4))
+        self.lbl_sal_preview = tk.Label(
+            prev_box, text="Bật đếm lương để xem…", font=("Consolas", 8),
+            bg="#151a24", fg="#CBD5E1", justify="left", anchor="w"
+        )
+        self.lbl_sal_preview.pack(fill="x")
+
         opt_f = tk.Frame(f, bg="#151a24")
         opt_f.pack(fill="x", pady=6)
 
@@ -334,6 +393,49 @@ class ControlCenterDialog(tk.Toplevel):
         )
         btn_save_sal.pack(anchor="w", pady=(4, 0))
 
+        self.after(200, self._refresh_salary_preview)
+        self.after(2000, self._salary_preview_loop)
+
+    def _salary_preview_loop(self):
+        try:
+            if not self.winfo_exists():
+                return
+            # Chỉ refresh khi đang ở tab Tiền Lương
+            try:
+                if self.notebook.index(self.notebook.select()) == self.notebook.index(self.tab_salary):
+                    self._refresh_salary_preview()
+            except Exception:
+                pass
+            self.after(2000, self._salary_preview_loop)
+        except Exception:
+            pass
+
+    def _refresh_salary_preview(self):
+        try:
+            from datetime import datetime
+            from app.core.salary_calculator import calculate_salary_info
+            info = calculate_salary_info(datetime.now(), self.app.config, self.app.get_today_departure_info)
+            if not info:
+                self.lbl_sal_preview.configure(text="Bật「Hiển thị tiền lương」rồi Lưu để xem preview.")
+                return
+
+            def v(n):
+                return f"{int(n):,} đ".replace(",", ".")
+
+            ot_line = ""
+            if info.get("ot_active"):
+                ot_line = f"\nOT: {info.get('ot_hours', 0):.2f}h ×{info.get('ot_multiplier_used', 1):g} = {v(info.get('ot_earned', 0))} ({info.get('ot_kind', '')})"
+            txt = (
+                f"Hôm nay  GROSS {v(info.get('daily_gross', 0))}  |  NET {v(info.get('daily_net', 0))}\n"
+                f"{info.get('cycle_label', 'Tháng')}  GROSS {v(info.get('month_gross', 0))}  |  NET {v(info.get('month_net', 0))}"
+                f"{ot_line}"
+            )
+            if info.get("deduct_bhxh"):
+                txt += f"\nBHXH ước tháng: {v(info.get('bhxh_month', 0))} (mức đóng {v(info.get('bhxh_base', 0))} × {info.get('bhxh_rate_pct', 10.5):g}%)"
+            self.lbl_sal_preview.configure(text=txt)
+        except Exception as e:
+            self.lbl_sal_preview.configure(text=f"(preview lỗi: {e})")
+
     def _save_salary_settings(self):
         try:
             mon = float(self.ent_salary_monthly.get().replace(".", "").replace(",", "").strip())
@@ -347,6 +449,17 @@ class ControlCenterDialog(tk.Toplevel):
                 raise ValueError("Ngày nhận lương phải từ 1 đến 31!")
             self.app.config["payday_day"] = p_val
 
+            ot_wd = float(self.ent_ot_wd.get().strip().replace(",", "."))
+            ot_sun = float(self.ent_ot_sun.get().strip().replace(",", "."))
+            ot_hol = float(self.ent_ot_hol.get().strip().replace(",", "."))
+            if ot_wd <= 0 or ot_sun <= 0 or ot_hol <= 0:
+                raise ValueError("Hệ số tăng ca phải > 0!")
+
+            bhxh_base = float(self.ent_bhxh_base.get().replace(".", "").replace(",", "").strip())
+            bhxh_rate = float(self.ent_bhxh_rate.get().strip().replace(",", "."))
+            if bhxh_rate < 0 or bhxh_rate > 100:
+                raise ValueError("% BHXH NLĐ phải trong 0–100!")
+
             self.app.config.setdefault("salary", {})
             self.app.config["salary"]["monthly"] = mon
             self.app.config["salary"]["work_days"] = days
@@ -356,6 +469,13 @@ class ControlCenterDialog(tk.Toplevel):
             self.app.config["salary"]["show_daily"] = self.var_sal_show_daily.get()
             self.app.config["salary"]["show_monthly"] = self.var_sal_show_monthly.get()
             self.app.config["salary"]["hidden"] = self.var_sal_hidden.get()
+            self.app.config["salary"]["ot_multiplier_weekday"] = ot_wd
+            self.app.config["salary"]["ot_multiplier_sunday"] = ot_sun
+            self.app.config["salary"]["ot_multiplier_holiday"] = ot_hol
+            self.app.config["salary"]["deduct_bhxh"] = self.var_deduct_bhxh.get()
+            self.app.config["salary"]["bhxh_base"] = bhxh_base
+            self.app.config["salary"]["bhxh_rate_pct"] = bhxh_rate
+            self.app.config["salary"]["clock_display"] = self.var_clock_display.get()
 
             self.app.config.setdefault("focus_task", {})
             self.app.config["focus_task"]["text"] = task_txt
@@ -363,6 +483,7 @@ class ControlCenterDialog(tk.Toplevel):
 
             self.app.save_config()
             self.app.update_extra_info_visibility()
+            self._refresh_salary_preview()
             messagebox.showinfo("Thành công", "Đã lưu thiết lập Tiền Lương & Chu kỳ thành công!", parent=self)
         except Exception as e:
             messagebox.showerror("Lỗi", f"Thông số không hợp lệ: {e}", parent=self)
