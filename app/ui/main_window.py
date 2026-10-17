@@ -34,6 +34,9 @@ from app.ui.dialogs.hydration_dialog import HydrationReminderDialog
 from app.ui.dialogs.task_dialog import QuickTaskDialog
 from app.ui.dialogs.update_dialog import UpdateNotificationDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
+from app.ui.dialogs.overtime_start_dialog import OvertimeStartDialog
+from app.ui.dialogs.salary_stats_dialog import SalaryStatsDialog
+from app.core.salary_calculator import clear_ot_session, reset_ot_session_if_needed
 from app.services.mascot_service import MascotManager
 from app.messages import ALERT_MESSAGES
 from tkinter import messagebox
@@ -293,6 +296,91 @@ class FloatingClock:
         self.config["salary"]["hidden"] = not self.config["salary"].get("hidden", False)
         self.save_config()
 
+    def open_salary_stats_dialog(self):
+        """Click dòng lương → thống kê gross / OT / BHXH / net."""
+        if hasattr(self, "_salary_stats_dialog") and self._salary_stats_dialog:
+            try:
+                if self._salary_stats_dialog.winfo_exists():
+                    self._salary_stats_dialog.lift()
+                    self._salary_stats_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._salary_stats_dialog = SalaryStatsDialog(self)
+        self._bind_dialog_restore(self._salary_stats_dialog)
+
+    def open_overtime_start_dialog(self):
+        """Sau tan làm: nhập giờ bắt đầu tăng ca."""
+        now = datetime.now()
+        dep, _ = self.get_today_departure_info(now)
+        default_t = (dep or "17:45")[:5]
+        if hasattr(self, "_ot_dialog") and self._ot_dialog:
+            try:
+                if self._ot_dialog.winfo_exists():
+                    self._ot_dialog.lift()
+                    self._ot_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._ot_dialog = OvertimeStartDialog(self, default_time=default_t)
+        self._bind_dialog_restore(self._ot_dialog)
+
+    def stop_overtime_session(self):
+        clear_ot_session(self.config)
+        self.save_config()
+        self.update_extra_info_visibility()
+
+    def _on_salary_label_release(self, event):
+        self.stop_drag(event)
+        if not getattr(self, "drag_moved", False):
+            self.open_salary_stats_dialog()
+        return "break"
+
+    def _on_ot_btn_release(self, event):
+        self.stop_drag(event)
+        if getattr(self, "drag_moved", False):
+            return "break"
+        sal = self.config.get("salary", {})
+        if sal.get("ot_start") and sal.get("ot_date") == datetime.now().strftime("%Y-%m-%d"):
+            # Đang OT → mở thống kê (sửa/dừng)
+            self.open_salary_stats_dialog()
+        else:
+            self.open_overtime_start_dialog()
+        return "break"
+
+    def _update_ot_button_visibility(self, s_info=None):
+        """Hiện nút OT sau tan làm; đổi chữ khi đang tăng ca."""
+        if self.config.get("mini_mode", False):
+            if hasattr(self, "ot_btn"):
+                self.ot_btn.pack_forget()
+            return
+        sal_cfg = self.config.get("salary", {})
+        if not sal_cfg.get("enabled", False):
+            self.ot_btn.pack_forget()
+            return
+        if s_info is None:
+            try:
+                s_info = self.calculate_salary_info(datetime.now())
+            except Exception:
+                s_info = {}
+        show = bool(s_info.get("show_ot_button"))
+        ot_active = bool(s_info.get("ot_active"))
+        if not show and not ot_active:
+            self.ot_btn.pack_forget()
+            return
+        if ot_active:
+            hrs = s_info.get("ot_hours", 0)
+            mult = s_info.get("ot_multiplier_used", 1)
+            self.ot_btn.configure(
+                text=f"⏱ Đang tăng ca {hrs:.2f}h ×{mult:g}…",
+                fg="#F59E0B",
+            )
+        else:
+            self.ot_btn.configure(text="⏱ Bắt đầu tăng ca", fg="#FBBF24")
+        # Pack sau dòng lương tháng nếu có, không thì sau daily
+        if not self.ot_btn.winfo_manager():
+            self.ot_btn.pack(anchor="center", pady=(1, 0))
+
     def open_quick_task_dialog(self):
         if hasattr(self, "_task_dialog") and self._task_dialog:
             try:
@@ -513,6 +601,8 @@ class FloatingClock:
                 self.pomo_ctrl_frame.pack_forget()
             self.salary_daily_label.pack_forget()
             self.salary_month_label.pack_forget()
+            if hasattr(self, "ot_btn"):
+                self.ot_btn.pack_forget()
             self.task_label.pack_forget()
             self.sys_info_label.pack_forget()
             self.weather_label.pack_forget()
@@ -664,7 +754,8 @@ class FloatingClock:
             text="",
             font=("Consolas", 8, "bold"),
             bg=self.config.get("bg_color", "#0f131a"),
-            fg="#34D399"
+            fg="#34D399",
+            cursor="hand2",
         )
 
         self.salary_month_label = tk.Label(
@@ -672,7 +763,18 @@ class FloatingClock:
             text="",
             font=("Consolas", 8, "bold"),
             bg=self.config.get("bg_color", "#0f131a"),
-            fg="#38BDF8"
+            fg="#38BDF8",
+            cursor="hand2",
+        )
+
+        # Nút bắt đầu / đang tăng ca (chỉ hiện sau tan làm)
+        self.ot_btn = tk.Label(
+            self.frame,
+            text="⏱ Bắt đầu tăng ca",
+            font=("Segoe UI", 8, "bold"),
+            bg=self.config.get("bg_color", "#0f131a"),
+            fg="#FBBF24",
+            cursor="hand2",
         )
 
         self.task_label = tk.Label(
@@ -808,6 +910,7 @@ class FloatingClock:
         if self.config.get("mini_mode", False):
             self.salary_daily_label.pack_forget()
             self.salary_month_label.pack_forget()
+            self.ot_btn.pack_forget()
             self.task_label.pack_forget()
             self.sys_info_label.pack_forget()
             self.weather_label.pack_forget()
@@ -825,6 +928,8 @@ class FloatingClock:
             self.salary_month_label.pack(anchor="center", pady=(1, 0))
         else:
             self.salary_month_label.pack_forget()
+
+        self._update_ot_button_visibility()
 
         if self.config.get("focus_task", {}).get("enabled", False) and self.config.get("focus_task", {}).get("text", ""):
             self.task_label.pack(anchor="center", pady=(2, 0))
@@ -859,7 +964,7 @@ class FloatingClock:
     def setup_bindings(self):
         # Chỉ bind lên các widget giao diện bên trong, KHÔNG bind self.root để tránh Tkinter bubble nhân đôi sự kiện chuột
         widgets = [self.frame, self.main_row, self.time_label, self.sub_label, self.date_label,
-                   self.salary_daily_label, self.salary_month_label, self.task_label,
+                   self.task_label,
                    self.sys_info_label, self.weather_label, self.sound_status_label]
         if hasattr(self, "pomo_ctrl_frame"):
             widgets.append(self.pomo_ctrl_frame)
@@ -870,6 +975,21 @@ class FloatingClock:
             w.bind("<ButtonRelease-1>", self.stop_drag)
             w.bind("<Button-3>", self.show_context_menu)
             w.bind("<Double-Button-1>", self.on_double_click)
+
+        # Dòng lương: click (không kéo) → thống kê chi tiết
+        for sal_w in (self.salary_daily_label, self.salary_month_label):
+            sal_w.bind("<ButtonPress-1>", self.start_drag)
+            sal_w.bind("<B1-Motion>", self.do_drag)
+            sal_w.bind("<ButtonRelease-1>", self._on_salary_label_release)
+            sal_w.bind("<Button-3>", self.show_context_menu)
+            sal_w.bind("<Double-Button-1>", lambda e: "break")
+
+        # Nút tăng ca
+        self.ot_btn.bind("<ButtonPress-1>", self.start_drag)
+        self.ot_btn.bind("<B1-Motion>", self.do_drag)
+        self.ot_btn.bind("<ButtonRelease-1>", self._on_ot_btn_release)
+        self.ot_btn.bind("<Button-3>", self.show_context_menu)
+        self.ot_btn.bind("<Double-Button-1>", lambda e: "break")
 
         # Quote label: cho phép kéo thả, nhả chuột đổi quote, chặn double-click đè lên mini mode
         self.quote_label.bind("<ButtonPress-1>", self.start_drag)
@@ -889,7 +1009,7 @@ class FloatingClock:
         hover_widgets = [
             self.root, self.frame, self.main_row, self.time_label, self.sub_label,
             self.date_label, self.quote_label, self.mascot_label,
-            self.salary_daily_label, self.salary_month_label, self.task_label,
+            self.salary_daily_label, self.salary_month_label, self.ot_btn, self.task_label,
             self.sys_info_label, self.weather_label, self.sound_status_label,
         ]
         if hasattr(self, "pomo_ctrl_frame"):
@@ -1741,11 +1861,18 @@ class FloatingClock:
                     self._last_sec_rendered = cur_sec
                     sal_cfg = self.config.get("salary", {})
                     if sal_cfg.get("enabled", False):
+                        if reset_ot_session_if_needed(self.config, now):
+                            self.save_config()
                         s_info = self.calculate_salary_info(now)
+                        self._cached_salary_info = s_info
                         if s_info.get("show_daily", True):
                             self.salary_daily_label.configure(text=s_info["daily_str"])
                         if s_info.get("show_monthly", True):
                             self.salary_month_label.configure(text=s_info["month_str"])
+                        self._update_ot_button_visibility(s_info)
+                    else:
+                        if hasattr(self, "ot_btn"):
+                            self.ot_btn.pack_forget()
 
                     if self.config.get("focus_task", {}).get("enabled", False):
                         t_txt = self.config.get("focus_task", {}).get("text", "")
@@ -1981,6 +2108,7 @@ class FloatingClock:
         quote_txt = self.current_quote if self.config.get("show_quote", True) else ""
         s_d_txt = self.salary_daily_label.cget("text") if not self.config.get("mini_mode", False) else ""
         s_m_txt = self.salary_month_label.cget("text") if not self.config.get("mini_mode", False) else ""
+        ot_txt = self.ot_btn.cget("text") if (not self.config.get("mini_mode", False) and self.ot_btn.winfo_manager()) else ""
         task_txt = self.task_label.cget("text") if not self.config.get("mini_mode", False) else ""
         sys_txt = self.sys_info_label.cget("text") if (not self.config.get("mini_mode", False) and self.config.get("show_sys_monitor", False)) else ""
         weather_txt = self.weather_label.cget("text") if not self.config.get("mini_mode", False) else ""
@@ -1991,6 +2119,7 @@ class FloatingClock:
             quote_txt != self._last_quote_rendered or
             len(s_d_txt) != len(getattr(self, "_last_sd_rendered", "")) or
             len(s_m_txt) != len(getattr(self, "_last_sm_rendered", "")) or
+            ot_txt != getattr(self, "_last_ot_rendered", "") or
             task_txt != getattr(self, "_last_task_rendered", "") or
             len(sys_txt) != len(getattr(self, "_last_sys_rendered", "")) or
             weather_txt != getattr(self, "_last_weather_rendered", "") or
@@ -2000,6 +2129,7 @@ class FloatingClock:
             self._last_quote_rendered = quote_txt
             self._last_sd_rendered = s_d_txt
             self._last_sm_rendered = s_m_txt
+            self._last_ot_rendered = ot_txt
             self._last_task_rendered = task_txt
             self._last_sys_rendered = sys_txt
             self._last_weather_rendered = weather_txt
