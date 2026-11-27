@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # cần toàn bộ lịch sử + tag để viết changelog so với tag trước
 
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
@@ -71,32 +73,21 @@ jobs:
           if (Test-Path "app\bin\mpv.exe") { Copy-Item "app\bin\mpv.exe" "dist\portable\app\bin\" }
           Compress-Archive -Path "dist\portable\*" -DestinationPath "dist\FloatingClock_Portable_$ver.zip" -Force
 
+      - name: 📝 Generate release notes (nội dung tag + danh sách commit)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          # checkout đôi khi lấy tag về dạng "nhẹ" → kéo lại đúng tag annotated để đọc nội dung tag
+          git fetch --force --tags origin
+          bash .github/scripts/release_notes.sh "${GITHUB_REF_NAME}" > release_notes.md
+          cat release_notes.md
+
       - name: 🚀 Publish GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           name: 🚀 Floating Clock Release ${{ github.ref_name }}
-          body: |
-            ## 🚀 Floating Clock Release ${{ github.ref_name }} ( •̀ ω •́ )✧
-
-            ### 📦 Download Packages:
-            - **`FloatingClock_Setup_${{ github.ref_name }}.exe`** (Recommended): Full Windows Setup Wizard with Desktop & Start Menu shortcuts.
-            - **`FloatingClock_Portable_${{ github.ref_name }}.zip`**: Standalone portable archive (extract and run).
-
-            ---
-
-            ### ✨ What's New & Key Features:
-            - 🐱 **Pixel Mascot Desktop Pet:** Thú cưng ảo tự động chuyển trạng thái thông minh: cày cuốc (`work`) trong giờ làm, thư thái (`idle`) khi nghỉ trưa và nhảy nhót (`leaving`) khi sắp tan làm / cuối tuần.
-            - 🎧 **Focus Music & Stream Player:** Tích hợp bộ âm thanh tập trung êm dịu, đài Lofi Live 24/7 và hỗ trợ dán link **YouTube / TikTok / SoundCloud / MP3** để phát ngầm tiết kiệm tài nguyên.
-            - 💸 **Real-time Salary & Workday Progress:** Theo dõi tiền lương nhảy từng giây và thanh tiến độ ca làm việc trong ngày.
-            - 🍅 **Productivity Suite:** Pomodoro Tracker, Bộ đếm ngược, Đồng hồ bấm giờ, Báo thức và Nhắc nhở uống nước.
-            - 🌦️ **Weather Forecast & System Monitor:** Dự báo thời tiết Open-Meteo và theo dõi phần cứng CPU/RAM/Pin.
-            - 🎛️ **Control Center & Hotkeys:** Bảng điều khiển trực quan, phím tắt nhanh `F8` (Xuyên thấu) và `F9` (Bật/Tắt âm thanh).
-
-            ---
-
-            ### 📖 Documentation:
-            - [Main README](https://github.com/nothingistoo-late/floating-clock#readme)
+          body_path: release_notes.md
           files: |
             dist/FloatingClock_Setup_*.exe
             dist/FloatingClock_Portable_*.zip
