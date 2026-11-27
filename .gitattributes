@@ -1,0 +1,2 @@
+# Script shell luôn xuống dòng kiểu Unix (LF) — CRLF làm bash báo lỗi $'' trên Linux / một số máy build
+*.sh text eol=lf
