@@ -36,7 +36,8 @@ from app.ui.dialogs.update_dialog import UpdateNotificationDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
 from app.ui.dialogs.overtime_start_dialog import OvertimeStartDialog
 from app.ui.dialogs.salary_stats_dialog import SalaryStatsDialog
-from app.core.salary_calculator import clear_ot_session, reset_ot_session_if_needed
+from app.core.salary_calculator import clear_ot_session, is_scheduled_workday, reset_ot_session_if_needed
+from app.core.logger import log_exception_throttled
 from app.services.mascot_service import MascotManager
 from app.messages import ALERT_MESSAGES
 from tkinter import messagebox
@@ -297,7 +298,7 @@ class FloatingClock:
         self.save_config()
 
     def open_salary_stats_dialog(self):
-        """Click dòng lương → thống kê gross / OT / BHXH / net."""
+        """Double-click dòng lương → thống kê gross / OT / BHXH / net."""
         if hasattr(self, "_salary_stats_dialog") and self._salary_stats_dialog:
             try:
                 if self._salary_stats_dialog.winfo_exists():
@@ -314,6 +315,9 @@ class FloatingClock:
         now = datetime.now()
         dep, _ = self.get_today_departure_info(now)
         default_t = (dep or "17:45")[:5]
+        # Ngày nghỉ / lễ: OT tính cả ngày → gợi ý giờ hiện tại thay vì giờ tan ca
+        if not is_scheduled_workday(now, self.config):
+            default_t = now.strftime("%H:%M")
         if hasattr(self, "_ot_dialog") and self._ot_dialog:
             try:
                 if self._ot_dialog.winfo_exists():
@@ -332,8 +336,10 @@ class FloatingClock:
 
     def _on_salary_label_release(self, event):
         self.stop_drag(event)
-        if not getattr(self, "drag_moved", False):
-            self.open_salary_stats_dialog()
+        return "break"
+
+    def _on_salary_label_double_click(self, event):
+        self.open_salary_stats_dialog()
         return "break"
 
     def _on_ot_btn_release(self, event):
@@ -976,13 +982,13 @@ class FloatingClock:
             w.bind("<Button-3>", self.show_context_menu)
             w.bind("<Double-Button-1>", self.on_double_click)
 
-        # Dòng lương: click (không kéo) → thống kê chi tiết
+        # Dòng lương: kéo thả bình thường, double-click → mở thống kê chi tiết
         for sal_w in (self.salary_daily_label, self.salary_month_label):
             sal_w.bind("<ButtonPress-1>", self.start_drag)
             sal_w.bind("<B1-Motion>", self.do_drag)
             sal_w.bind("<ButtonRelease-1>", self._on_salary_label_release)
             sal_w.bind("<Button-3>", self.show_context_menu)
-            sal_w.bind("<Double-Button-1>", lambda e: "break")
+            sal_w.bind("<Double-Button-1>", self._on_salary_label_double_click)
 
         # Nút tăng ca
         self.ot_btn.bind("<ButtonPress-1>", self.start_drag)
@@ -1634,8 +1640,8 @@ class FloatingClock:
         is_work = bool(self.config.get("target_time_is_work", True))
         today_str = now.strftime("%Y-%m-%d")
         if is_work:
-            # Chủ nhật không có ca làm → không báo tan làm
-            if now.weekday() == 6:
+            # Chủ nhật, ngày lễ, thứ 7 nghỉ (theo work_days khi bật lương) → không có ca, không báo tan làm
+            if not is_scheduled_workday(now, self.config):
                 return
             today_dep, today_tag = self.get_today_departure_info(now)
             tgt_str = today_dep
@@ -1910,7 +1916,8 @@ class FloatingClock:
             else:
                 self.frame.configure(highlightbackground=self.config.get("border_color", "#2a3447"), highlightthickness=1)
         except Exception:
-            pass
+            # Không nuốt lỗi im lặng nữa: ghi log (giới hạn 1 lần/phút cho mỗi lỗi để không phình file)
+            log_exception_throttled(source="UpdateLoop")
         finally:
             if not getattr(self, "_is_closing", False):
                 try:

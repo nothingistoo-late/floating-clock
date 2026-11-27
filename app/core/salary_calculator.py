@@ -52,6 +52,41 @@ def is_holiday_date(now, config):
     return False, ""
 
 
+def works_saturday(config):
+    """
+    Thứ 7 có phải ngày làm việc không — quy ước DUY NHẤT dùng chung cho cả lương hôm nay,
+    lũy kế tháng và báo tan làm: work_days > 22 nghĩa là có làm thứ 7.
+    """
+    try:
+        work_days = int(config.get("salary", {}).get("work_days", 22))
+    except Exception:
+        work_days = 22
+    return work_days > 22
+
+
+def is_salary_weekend(now, config):
+    """True nếu hôm nay là ngày nghỉ cuối tuần theo cấu hình lương."""
+    wd = now.weekday()
+    if wd == 6:
+        return True
+    return wd == 5 and not works_saturday(config)
+
+
+def is_scheduled_workday(now, config):
+    """
+    Hôm nay có ca làm không (dùng cho báo tan làm).
+    Chủ nhật & ngày lễ: không. Thứ 7: chỉ xét theo work_days khi bật tính lương
+    (khi tắt lương thì giữ hành vi cũ: thứ 7 vẫn có ca theo sat_time).
+    """
+    if now.weekday() == 6:
+        return False
+    if is_holiday_date(now, config)[0]:
+        return False
+    if now.weekday() == 5 and config.get("salary", {}).get("enabled", False):
+        return works_saturday(config)
+    return True
+
+
 def resolve_ot_multiplier(now, config):
     """
     Chọn hệ số OT theo ngày: lễ > CN > ngày thường.
@@ -67,21 +102,23 @@ def resolve_ot_multiplier(now, config):
 
 
 def _normalize_ot_time_str(raw):
-    """Chuẩn hóa 'HH:MM' / 'HH:MM:SS' → 'HH:MM:SS' hoặc None."""
+    """Chuẩn hóa 'HH:MM' / 'HH:MM:SS' → 'HH:MM:SS' hoặc None (sai định dạng / ngoài khoảng 00:00–23:59)."""
     if not raw:
         return None
     s = str(raw).strip()
     parts = s.split(":")
     try:
         if len(parts) == 2:
-            h, m = int(parts[0]), int(parts[1])
-            return f"{h:02d}:{m:02d}:00"
-        if len(parts) >= 3:
+            h, m, sec = int(parts[0]), int(parts[1]), 0
+        elif len(parts) == 3:
             h, m, sec = int(parts[0]), int(parts[1]), int(parts[2])
-            return f"{h:02d}:{m:02d}:{sec:02d}"
+        else:
+            return None
     except Exception:
         return None
-    return None
+    if not (0 <= h <= 23 and 0 <= m <= 59 and 0 <= sec <= 59):
+        return None
+    return f"{h:02d}:{m:02d}:{sec:02d}"
 
 
 def reset_ot_session_if_needed(config, now):
@@ -103,7 +140,7 @@ def set_ot_start(config, start_time_str, now=None):
     now = now or datetime.now()
     norm = _normalize_ot_time_str(start_time_str)
     if not norm:
-        raise ValueError("Giờ bắt đầu tăng ca không hợp lệ (HH:MM)")
+        raise ValueError("Giờ bắt đầu tăng ca không hợp lệ (HH:MM, từ 00:00 đến 23:59)")
     sal = config.setdefault("salary", {})
     sal["ot_start"] = norm
     sal["ot_date"] = now.strftime("%Y-%m-%d")
@@ -219,15 +256,34 @@ def calculate_salary_info(now, config, get_today_departure_func):
 
     # Tính lũy kế tháng tới hôm qua
     cycle_mode = sal_cfg.get("calc_cycle", "calendar_month")
-    payday_day = config.get("payday_day", 5)
+    try:
+        payday_day = int(config.get("payday_day", 5))
+    except Exception:
+        payday_day = 5
     past_work_days = 0
     cycle_label = f"Tháng {now.month}"
+    # Cùng một quy ước thứ 7 cho cả hôm nay lẫn lũy kế (trước đây 2 chỗ lệch nhau: >22 và >=24)
+    last_work_weekday = 5 if works_saturday(config) else 4
 
+    def _count_work_days(d_from, d_to):
+        """Đếm ngày làm từ d_from tới d_to (bao gồm). Ngày lễ trùng ngày làm vẫn tính: nghỉ lễ hưởng lương."""
+        cnt = 0
+        cur = d_from
+        while cur <= d_to:
+            if cur.weekday() <= last_work_weekday:
+                cnt += 1
+            cur += timedelta(days=1)
+        return cnt
+
+    yesterday = now.date() - timedelta(days=1)
     if cycle_mode == "payday_cycle":
         try:
-            if now.day >= payday_day:
-                max_d = calendar.monthrange(now.year, now.month)[1]
-                dt_c_start = datetime(now.year, now.month, min(payday_day, max_d)).date()
+            # Kẹp ngày lương theo số ngày của tháng (vd: lương ngày 31 → tháng 2 là ngày 28/29),
+            # khớp với get_payday_countdown_info
+            max_d_cur = calendar.monthrange(now.year, now.month)[1]
+            payday_this_month = min(max(1, payday_day), max_d_cur)
+            if now.day >= payday_this_month:
+                dt_c_start = datetime(now.year, now.month, payday_this_month).date()
             else:
                 if now.month == 1:
                     prev_y = now.year - 1
@@ -236,43 +292,28 @@ def calculate_salary_info(now, config, get_today_departure_func):
                     prev_y = now.year
                     prev_m = now.month - 1
                 max_d = calendar.monthrange(prev_y, prev_m)[1]
-                dt_c_start = datetime(prev_y, prev_m, min(payday_day, max_d)).date()
+                dt_c_start = datetime(prev_y, prev_m, min(max(1, payday_day), max_d)).date()
 
-            cur_d = dt_c_start
-            yesterday = now.date() - timedelta(days=1)
-            while cur_d <= yesterday:
-                w_day = cur_d.weekday()
-                if work_days >= 24:
-                    if w_day <= 5:
-                        past_work_days += 1
-                else:
-                    if w_day <= 4:
-                        past_work_days += 1
-                cur_d += timedelta(days=1)
+            past_work_days = _count_work_days(dt_c_start, yesterday)
             cycle_label = f"Kỳ {dt_c_start.strftime('%d/%m')}"
         except Exception:
             cycle_label = "Kỳ Lương"
     else:
-        cur_year = now.year
-        cur_month = now.month
-        for day in range(1, now.day):
-            try:
-                dt_d = datetime(cur_year, cur_month, day)
-                w_day = dt_d.weekday()
-                if work_days >= 24:
-                    if w_day <= 5:
-                        past_work_days += 1
-                else:
-                    if w_day <= 4:
-                        past_work_days += 1
-            except Exception:
-                pass
+        month_start = now.date().replace(day=1)
+        past_work_days = _count_work_days(month_start, yesterday)
         cycle_label = f"Tháng {now.month}"
 
-    is_weekend = (now.weekday() == 6) or (now.weekday() == 5 and work_days <= 22)
+    is_weekend = is_salary_weekend(now, config)
+    is_holiday, _holiday_name = is_holiday_date(now, config)
+    # Ngày lễ trùng ngày làm: nghỉ nhưng vẫn hưởng nguyên lương ngày
+    is_paid_holiday = is_holiday and not is_weekend
     if is_weekend:
         daily_earned = 0.0
         worked_hours = 0.0
+    elif is_paid_holiday:
+        daily_earned = daily_rate
+        worked_hours = 0.0
+        is_lunch = False
 
     # --- Tăng ca (OT session) ---
     ot_start_raw = sal_cfg.get("ot_start")
@@ -288,17 +329,22 @@ def calculate_salary_info(now, config, get_today_departure_func):
         if norm_ot:
             try:
                 dt_ot = datetime.strptime(f"{today_str} {norm_ot}", "%Y-%m-%d %H:%M:%S")
+                # Ngày làm bình thường: OT chỉ tính từ sau giờ tan ca, tránh trả 2 lần
+                # cho khoảng giờ đã nằm trong lương ca (vd: nhập OT từ 13:00 khi ca kết thúc 17:45)
+                if not is_weekend and not is_holiday and dt_ot < dt_end:
+                    dt_ot = dt_end
                 ot_sec = max(0.0, (now - dt_ot).total_seconds())
                 ot_hours = ot_sec / 3600.0
                 ot_earned = ot_hours * hourly_rate * ot_mult
                 ot_active = True
-                ot_start_display = norm_ot[:5]
+                ot_start_display = dt_ot.strftime("%H:%M")
             except Exception:
                 pass
 
-    # Nút OT: sau tan làm (ngày làm) HOẶC cuối tuần/lễ (có thể OT cả ngày)
-    # Theo plan: show khi now >= dt_end; cuối tuần vẫn cho bấm nếu đã hết “ca” (dt_end)
-    show_ot_button = bool(sal_cfg.get("enabled", False)) and (now >= dt_end)
+    # Nút OT: ngày làm → sau giờ tan ca; cuối tuần / ngày lễ → cả ngày (đi làm là tính OT)
+    show_ot_button = bool(sal_cfg.get("enabled", False)) and (
+        now >= dt_end or is_weekend or is_holiday
+    )
 
     daily_gross = daily_earned + ot_earned
     # Tháng: past đầy đủ + gross hôm nay (không cap cứng bỏ OT — cap soft bằng monthly*1.5 nếu cần)
@@ -306,7 +352,7 @@ def calculate_salary_info(now, config, get_today_departure_func):
     month_gross = month_base + daily_gross
 
     # --- BHXH NLĐ ước lượng ---
-    deduct_bhxh = bool(sal_cfg.get("deduct_bhxh", False))
+    deduct_bhxh = bool(sal_cfg.get("deduct_bhxh", True))
     bhxh_base = float(sal_cfg.get("bhxh_base") or 0)
     if bhxh_base <= 0:
         bhxh_base = monthly
@@ -346,6 +392,13 @@ def calculate_salary_info(now, config, get_today_departure_func):
         month_str = SALARY_TEXTS["hidden_month"].format(cycle_label=cycle_label)
     elif is_weekend and not ot_active:
         daily_str = SALARY_TEXTS["weekend"]
+        month_str = f"📅 {cycle_label}: {_fmt_vnd(month_show)} ({pct_month:.1f}%)"
+    elif is_paid_holiday and not ot_active:
+        daily_str = SALARY_TEXTS["holiday"].format(daily=_fmt_vnd(daily_show))
+        month_str = f"📅 {cycle_label}: {_fmt_vnd(month_show)} ({pct_month:.1f}%)"
+    elif (is_weekend or is_holiday) and ot_active:
+        # Ngày nghỉ đi làm: toàn bộ là tăng ca, không có tiến độ ca thường
+        daily_str = f"💸 Ngày: {_fmt_vnd(daily_show)}{ot_tag} • OT {ot_hours:.2f}h"
         month_str = f"📅 {cycle_label}: {_fmt_vnd(month_show)} ({pct_month:.1f}%)"
     elif now < dt_start and not ot_active:
         daily_str = SALARY_TEXTS["before_work"].format(start_time=st_str[:5])
@@ -403,5 +456,6 @@ def calculate_salary_info(now, config, get_today_departure_func):
         "show_ot_button": show_ot_button,
         "dt_end_display": dt_end.strftime("%H:%M"),
         "is_weekend": is_weekend,
+        "is_holiday": is_holiday,
         "after_work": now >= dt_end,
     }

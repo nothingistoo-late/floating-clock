@@ -4,12 +4,12 @@ Manages remote version checks, changelog retrieval, and release page redirection
 """
 import json
 import re
-import ssl
 import threading
 import urllib.request
 import webbrowser
 
 from app.constants import APP_VERSION, GITHUB_API_LATEST_RELEASE, GITHUB_RELEASES_URL
+from app.core.net_utils import create_secure_ssl_context
 
 
 class UpdateManager:
@@ -55,13 +55,7 @@ class UpdateManager:
         def _worker():
             self.is_checking = True
             try:
-                try:
-                    if hasattr(ssl, "_create_unverified_context"):
-                        ctx = ssl._create_unverified_context()
-                    else:
-                        ctx = ssl.create_default_context()
-                except Exception:
-                    ctx = None
+                ctx = create_secure_ssl_context()
 
                 req = urllib.request.Request(
                     GITHUB_API_LATEST_RELEASE,
@@ -76,7 +70,7 @@ class UpdateManager:
                 remote_tag = data.get("tag_name", "").strip()
                 title = data.get("name", "").strip() or remote_tag
                 body = data.get("body", "").strip()
-                release_url = data.get("html_url", GITHUB_RELEASES_URL)
+                release_url = self.sanitize_release_url(data.get("html_url"))
                 published_at = data.get("published_at", "")
 
                 update_info = {
@@ -107,9 +101,20 @@ class UpdateManager:
         th.start()
 
     @staticmethod
-    def open_release_page(url=None):
+    def sanitize_release_url(url):
+        """Chỉ chấp nhận link https://github.com/...; còn lại quay về trang Releases mặc định."""
+        try:
+            u = str(url or "").strip()
+            if u.lower().startswith("https://github.com/"):
+                return u
+        except Exception:
+            pass
+        return GITHUB_RELEASES_URL
+
+    @classmethod
+    def open_release_page(cls, url=None):
         """Mở trang tải bản phát hành trên trình duyệt mặc định của hệ thống"""
-        target = url or GITHUB_RELEASES_URL
+        target = cls.sanitize_release_url(url)
         try:
             webbrowser.open(target)
             return True

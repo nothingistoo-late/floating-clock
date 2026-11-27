@@ -1,7 +1,6 @@
 """
 Main application runner
 """
-import datetime
 import os
 import sys
 import threading
@@ -10,17 +9,7 @@ from tkinter import messagebox
 import traceback
 
 from app.config import APP_DIR
-
-LOG_FILE = os.path.join(APP_DIR, "floating_clock_error.log")
-
-
-def log_error(err_msg, source="General"):
-    try:
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{now_str}] [{source}]\n{err_msg}\n{'-'*60}\n")
-    except Exception:
-        pass
+from app.core.logger import LOG_FILE, log_error  # noqa: F401 (giữ tương thích import cũ)
 
 
 def handle_uncaught_exception(exc_type, exc_val, exc_tb):
