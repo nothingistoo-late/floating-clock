@@ -26,6 +26,7 @@ from app.core.win32_utils import (
 from app.services.ai_service import AIManager
 from app.services.sound_service import FocusSoundManager, sound_mgr
 from app.services.update_service import UpdateManager
+from app.services.ytdlp_updater import YtDlpUpdater
 from app.services.weather_service import WeatherManager
 from app.ui.context_menu import ContextMenuBuilder
 from app.ui.dialogs.alert_dialog import AlertNotificationDialog
@@ -33,7 +34,15 @@ from app.ui.dialogs.control_center import ControlCenterDialog
 from app.ui.dialogs.hydration_dialog import HydrationReminderDialog
 from app.ui.dialogs.task_dialog import QuickTaskDialog
 from app.ui.dialogs.update_dialog import UpdateNotificationDialog
+from app.ui.dialogs.update_progress_dialog import UpdateProgressDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
+from app.ui.dialogs.overtime_start_dialog import OvertimeStartDialog
+from app.ui.dialogs.salary_stats_dialog import SalaryStatsDialog
+from app.ui.dialogs.youtube_link_dialog import YouTubeLinkDialog
+from app.ui.youtube_overlay import YouTubeOverlay
+from app.services.youtube_player import parse_youtube_url
+from app.core.salary_calculator import clear_ot_session, is_scheduled_workday, reset_ot_session_if_needed
+from app.core.logger import log_exception_throttled
 from app.services.mascot_service import MascotManager
 from app.messages import ALERT_MESSAGES
 from tkinter import messagebox
@@ -50,7 +59,11 @@ class FloatingClock:
         self.ai_mgr = AIManager(self.config)
         self.mascot_mgr = MascotManager(self.root, self.config)
         self.update_mgr = UpdateManager(self.config)
+        # Cập nhật yt-dlp (trình lấy video YouTube) cùng lúc với kiểm tra cập nhật app
+        self.ytdlp_updater = YtDlpUpdater()
         self._last_mascot_state = None
+        # Popup xem YouTube khi rê chuột vào đồng hồ
+        self.youtube = YouTubeOverlay(self)
 
         # Global Hotkey Manager (Fix F8 click-through lock)
         # Debounce F8: tránh queue nhiều after() khi giữ/spam phím → config lệch với style thật
@@ -293,6 +306,133 @@ class FloatingClock:
         self.config["salary"]["hidden"] = not self.config["salary"].get("hidden", False)
         self.save_config()
 
+    def open_salary_stats_dialog(self):
+        """Double-click dòng lương → thống kê gross / OT / BHXH / net."""
+        if hasattr(self, "_salary_stats_dialog") and self._salary_stats_dialog:
+            try:
+                if self._salary_stats_dialog.winfo_exists():
+                    self._salary_stats_dialog.lift()
+                    self._salary_stats_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._salary_stats_dialog = SalaryStatsDialog(self)
+        self._bind_dialog_restore(self._salary_stats_dialog)
+
+    def open_overtime_start_dialog(self):
+        """Sau tan làm: nhập giờ bắt đầu tăng ca."""
+        now = datetime.now()
+        dep, _ = self.get_today_departure_info(now)
+        default_t = (dep or "17:45")[:5]
+        # Ngày nghỉ / lễ: OT tính cả ngày → gợi ý giờ hiện tại thay vì giờ tan ca
+        if not is_scheduled_workday(now, self.config):
+            default_t = now.strftime("%H:%M")
+        if hasattr(self, "_ot_dialog") and self._ot_dialog:
+            try:
+                if self._ot_dialog.winfo_exists():
+                    self._ot_dialog.lift()
+                    self._ot_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._ot_dialog = OvertimeStartDialog(self, default_time=default_t)
+        self._bind_dialog_restore(self._ot_dialog)
+
+    # ---------------- 📺 YOUTUBE KHI HOVER ----------------
+    def open_youtube_link_dialog(self):
+        """Mở hộp thoại dán link YouTube."""
+        if getattr(self, "_yt_dialog", None):
+            try:
+                if self._yt_dialog.winfo_exists():
+                    self._yt_dialog.lift()
+                    self._yt_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._yt_dialog = YouTubeLinkDialog(self, initial_url="")
+        self._bind_dialog_restore(self._yt_dialog)
+
+    def play_youtube_url(self, raw_url):
+        ok, msg = self.youtube.play_url(raw_url)
+        if not ok:
+            self._safe_messagebox("showwarning", "Xem YouTube", msg)
+
+    def stop_youtube(self):
+        self.youtube.stop()
+
+    def toggle_youtube_hover(self):
+        self.youtube.toggle_hover_enabled()
+
+    def _on_paste_youtube(self, event=None):
+        """Ctrl+V trên đồng hồ: clipboard có link YouTube thì phát luôn, không thì mở hộp thoại."""
+        try:
+            txt = self.root.clipboard_get()
+        except Exception:
+            txt = ""
+        if parse_youtube_url(txt):
+            self.play_youtube_url(txt)
+        else:
+            self.open_youtube_link_dialog()
+        return "break"
+
+    def stop_overtime_session(self):
+        clear_ot_session(self.config)
+        self.save_config()
+        self.update_extra_info_visibility()
+
+    def _on_salary_label_release(self, event):
+        self.stop_drag(event)
+        return "break"
+
+    def _on_salary_label_double_click(self, event):
+        self.open_salary_stats_dialog()
+        return "break"
+
+    def _on_ot_btn_release(self, event):
+        self.stop_drag(event)
+        if getattr(self, "drag_moved", False):
+            return "break"
+        sal = self.config.get("salary", {})
+        if sal.get("ot_start") and sal.get("ot_date") == datetime.now().strftime("%Y-%m-%d"):
+            # Đang OT → mở thống kê (sửa/dừng)
+            self.open_salary_stats_dialog()
+        else:
+            self.open_overtime_start_dialog()
+        return "break"
+
+    def _update_ot_button_visibility(self, s_info=None):
+        """Hiện nút OT sau tan làm; đổi chữ khi đang tăng ca."""
+        if self.config.get("mini_mode", False):
+            if hasattr(self, "ot_btn"):
+                self.ot_btn.pack_forget()
+            return
+        sal_cfg = self.config.get("salary", {})
+        if not sal_cfg.get("enabled", False):
+            self.ot_btn.pack_forget()
+            return
+        if s_info is None:
+            try:
+                s_info = self.calculate_salary_info(datetime.now())
+            except Exception:
+                s_info = {}
+        show = bool(s_info.get("show_ot_button"))
+        ot_active = bool(s_info.get("ot_active"))
+        if not show and not ot_active:
+            self.ot_btn.pack_forget()
+            return
+        if ot_active:
+            hrs = s_info.get("ot_hours", 0)
+            mult = s_info.get("ot_multiplier_used", 1)
+            self.ot_btn.configure(
+                text=f"⏱ Đang tăng ca {hrs:.2f}h ×{mult:g}…",
+                fg="#F59E0B",
+            )
+        else:
+            self.ot_btn.configure(text="⏱ Bắt đầu tăng ca", fg="#FBBF24")
+        # Pack sau dòng lương tháng nếu có, không thì sau daily
+        if not self.ot_btn.winfo_manager():
+            self.ot_btn.pack(anchor="center", pady=(1, 0))
+
     def open_quick_task_dialog(self):
         if hasattr(self, "_task_dialog") and self._task_dialog:
             try:
@@ -326,7 +466,41 @@ class FloatingClock:
             if last_checked == today_str:
                 return
 
-        def _on_result(has_update, update_info, err):
+        # Đang kiểm tra dở (bấm 2 lần / lượt tự kiểm tra lúc khởi động chưa xong)
+        if getattr(self, "_update_check_running", False):
+            if interactive:
+                dlg = getattr(self, "_update_progress_dialog", None)
+                try:
+                    if dlg is not None and dlg.winfo_exists():
+                        dlg.lift()
+                        return
+                except Exception:
+                    pass
+                self._safe_messagebox(
+                    "showinfo", "Kiểm tra cập nhật",
+                    "App đang kiểm tra cập nhật ở nền, chờ chút rồi thử lại nha (・ω・)ノ",
+                )
+            return
+        self._update_check_running = True
+
+        # Bấm tay → hiện cửa sổ tiến trình cho người dùng biết đang làm gì (tự kiểm tra ngầm thì không)
+        progress = UpdateProgressDialog(self) if interactive else None
+        self._update_progress_dialog = progress
+        if progress is not None:
+            self._bind_dialog_restore(progress)
+
+        # Chạy song song 2 việc: kiểm tra bản app mới + cập nhật yt-dlp. Đủ cả 2 kết quả mới báo 1 lần.
+        results = {}
+
+        def _finish():
+            if "app" not in results or "ytdlp" not in results:
+                return
+            self._update_check_running = False
+            if progress is not None:
+                progress.close()
+            self._update_progress_dialog = None
+            has_update, update_info, err = results["app"]
+            yt_note = self._ytdlp_result_text(results["ytdlp"])
             if not err:
                 self.config["last_update_check_date"] = today_str
                 self.save_config()
@@ -340,7 +514,7 @@ class FloatingClock:
                             return
                     except Exception:
                         pass
-                self._update_dialog = UpdateNotificationDialog(self, update_info)
+                self._update_dialog = UpdateNotificationDialog(self, update_info, extra_note=yt_note)
                 try:
                     self._update_dialog.bind(
                         "<Destroy>",
@@ -351,22 +525,74 @@ class FloatingClock:
                 self.root.after(80, self.ensure_window_visible)
             elif interactive:
                 if err:
-                    self._safe_messagebox(
-                        "showwarning",
-                        "Kiểm tra cập nhật",
-                        f"Không thể kết nối đến máy chủ GitHub:\n{err}",
-                    )
+                    app_line = f"Ứng dụng: không thể kết nối đến máy chủ GitHub:\n{err}"
                 else:
-                    self._safe_messagebox(
-                        "showinfo",
-                        "Kiểm tra cập nhật",
-                        f"Bạn đang sử dụng phiên bản mới nhất ({APP_VERSION}) rồi nha! (づ｡◕‿‿◕｡)づ",
-                    )
+                    app_line = f"Ứng dụng: bạn đang dùng phiên bản mới nhất ({APP_VERSION}) rồi nha! (づ｡◕‿‿◕｡)づ"
+                yt_failed = bool(results["ytdlp"].get("error"))
+                self._safe_messagebox(
+                    "showwarning" if (err or yt_failed) else "showinfo",
+                    "Kiểm tra cập nhật",
+                    f"{app_line}\n\n{yt_note}" if yt_note else app_line,
+                )
+
+        def _on_app_result(has_update, update_info, err):
+            results["app"] = (has_update, update_info, err)
+            if progress is not None:
+                if err:
+                    progress.set_app_status("Ứng dụng: không kết nối được GitHub", done=True)
+                elif has_update:
+                    latest = (update_info or {}).get("latest_version", "")
+                    progress.set_app_status(f"Ứng dụng: có bản mới {latest}!", done=True)
+                else:
+                    progress.set_app_status(f"Ứng dụng: đang là bản mới nhất ({APP_VERSION})", done=True)
+            _finish()
+
+        def _on_ytdlp_progress(text):
+            if progress is not None:
+                done = text.endswith("✓")
+                progress.set_ytdlp_status(f"yt-dlp: {text.rstrip(' ✓')}", done=done)
+
+        def _on_ytdlp_result(res):
+            results["ytdlp"] = res or {}
+            if progress is not None:
+                progress.set_ytdlp_status("yt-dlp: xong", done=True)
+            _finish()
+
+        started = self.ytdlp_updater.update_async(
+            callback=_on_ytdlp_result,
+            dispatcher=lambda fn: self.root.after(0, fn),
+            on_progress=_on_ytdlp_progress,
+        )
+        if not started:
+            results["ytdlp"] = {"skipped": True}   # đang cập nhật dở từ lượt trước
+
+        def _watchdog():
+            # Phòng 1 trong 2 kết quả không bao giờ về → đừng treo cửa sổ / khóa lượt kiểm tra sau
+            if "app" in results and "ytdlp" in results:
+                return
+            results.setdefault("app", (False, None, "Hết thời gian chờ phản hồi từ GitHub"))
+            results.setdefault("ytdlp", {"error": "Hết thời gian chờ cập nhật"})
+            _finish()
+        self.root.after(5 * 60 * 1000, _watchdog)
 
         self.update_mgr.check_for_updates(
-            callback=_on_result,
+            callback=_on_app_result,
             dispatcher=lambda fn: self.root.after(0, fn),
         )
+
+    @staticmethod
+    def _ytdlp_result_text(res):
+        """Một dòng tóm tắt kết quả cập nhật yt-dlp để ghép vào thông báo."""
+        res = res or {}
+        if res.get("skipped"):
+            return "yt-dlp (trình lấy video YouTube): đang cập nhật ở nền, thử lại sau ít phút."
+        if res.get("updated"):
+            return f"yt-dlp (trình lấy video YouTube): đã cập nhật {res.get('before')} → {res.get('after')} ✓"
+        if res.get("ok"):
+            return f"yt-dlp (trình lấy video YouTube): đang là bản mới nhất ({res.get('after')})."
+        if res.get("error"):
+            return f"yt-dlp (trình lấy video YouTube): chưa cập nhật được (｡•́︿•̀｡)\n{res.get('error')}"
+        return ""
 
     def toggle_autohide(self):
         new_val = not self.config.get("auto_hide", False)
@@ -433,9 +659,29 @@ class FloatingClock:
         full = self._full_opacity()
         return max(0.40, full * 0.40)
 
+    def hide_clock_for_video(self):
+        """Video YouTube đang hiện → đồng hồ tàng hình hẳn (tránh hai lớp chồng nhau gây nhiễu)."""
+        self._hidden_for_video = True
+        self._set_window_alpha(0.0)
+
+    def restore_clock_after_video(self):
+        """Video ẩn đi → trả đồng hồ về độ trong suốt bình thường (theo auto-hide nếu bật)."""
+        if not getattr(self, "_hidden_for_video", False):
+            return
+        self._hidden_for_video = False
+        self._sync_autohide_alpha()
+        try:
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
+
     def _set_window_alpha(self, alpha):
         try:
-            a = max(0.15, min(1.0, float(alpha)))
+            if getattr(self, "_hidden_for_video", False):
+                # Đang xem video: mọi nơi muốn chỉnh alpha (auto-hide, đổi opacity...) đều giữ tàng hình
+                a = 0.0
+            else:
+                a = max(0.15, min(1.0, float(alpha)))
             # Tránh gọi attributes lặp vô ích (giảm giật); vẫn ép khi lệch
             try:
                 cur = float(self.root.attributes("-alpha"))
@@ -513,6 +759,8 @@ class FloatingClock:
                 self.pomo_ctrl_frame.pack_forget()
             self.salary_daily_label.pack_forget()
             self.salary_month_label.pack_forget()
+            if hasattr(self, "ot_btn"):
+                self.ot_btn.pack_forget()
             self.task_label.pack_forget()
             self.sys_info_label.pack_forget()
             self.weather_label.pack_forget()
@@ -664,7 +912,8 @@ class FloatingClock:
             text="",
             font=("Consolas", 8, "bold"),
             bg=self.config.get("bg_color", "#0f131a"),
-            fg="#34D399"
+            fg="#34D399",
+            cursor="hand2",
         )
 
         self.salary_month_label = tk.Label(
@@ -672,7 +921,18 @@ class FloatingClock:
             text="",
             font=("Consolas", 8, "bold"),
             bg=self.config.get("bg_color", "#0f131a"),
-            fg="#38BDF8"
+            fg="#38BDF8",
+            cursor="hand2",
+        )
+
+        # Nút bắt đầu / đang tăng ca (chỉ hiện sau tan làm)
+        self.ot_btn = tk.Label(
+            self.frame,
+            text="⏱ Bắt đầu tăng ca",
+            font=("Segoe UI", 8, "bold"),
+            bg=self.config.get("bg_color", "#0f131a"),
+            fg="#FBBF24",
+            cursor="hand2",
         )
 
         self.task_label = tk.Label(
@@ -808,6 +1068,7 @@ class FloatingClock:
         if self.config.get("mini_mode", False):
             self.salary_daily_label.pack_forget()
             self.salary_month_label.pack_forget()
+            self.ot_btn.pack_forget()
             self.task_label.pack_forget()
             self.sys_info_label.pack_forget()
             self.weather_label.pack_forget()
@@ -825,6 +1086,8 @@ class FloatingClock:
             self.salary_month_label.pack(anchor="center", pady=(1, 0))
         else:
             self.salary_month_label.pack_forget()
+
+        self._update_ot_button_visibility()
 
         if self.config.get("focus_task", {}).get("enabled", False) and self.config.get("focus_task", {}).get("text", ""):
             self.task_label.pack(anchor="center", pady=(2, 0))
@@ -859,7 +1122,7 @@ class FloatingClock:
     def setup_bindings(self):
         # Chỉ bind lên các widget giao diện bên trong, KHÔNG bind self.root để tránh Tkinter bubble nhân đôi sự kiện chuột
         widgets = [self.frame, self.main_row, self.time_label, self.sub_label, self.date_label,
-                   self.salary_daily_label, self.salary_month_label, self.task_label,
+                   self.task_label,
                    self.sys_info_label, self.weather_label, self.sound_status_label]
         if hasattr(self, "pomo_ctrl_frame"):
             widgets.append(self.pomo_ctrl_frame)
@@ -870,6 +1133,21 @@ class FloatingClock:
             w.bind("<ButtonRelease-1>", self.stop_drag)
             w.bind("<Button-3>", self.show_context_menu)
             w.bind("<Double-Button-1>", self.on_double_click)
+
+        # Dòng lương: kéo thả bình thường, double-click → mở thống kê chi tiết
+        for sal_w in (self.salary_daily_label, self.salary_month_label):
+            sal_w.bind("<ButtonPress-1>", self.start_drag)
+            sal_w.bind("<B1-Motion>", self.do_drag)
+            sal_w.bind("<ButtonRelease-1>", self._on_salary_label_release)
+            sal_w.bind("<Button-3>", self.show_context_menu)
+            sal_w.bind("<Double-Button-1>", self._on_salary_label_double_click)
+
+        # Nút tăng ca
+        self.ot_btn.bind("<ButtonPress-1>", self.start_drag)
+        self.ot_btn.bind("<B1-Motion>", self.do_drag)
+        self.ot_btn.bind("<ButtonRelease-1>", self._on_ot_btn_release)
+        self.ot_btn.bind("<Button-3>", self.show_context_menu)
+        self.ot_btn.bind("<Double-Button-1>", lambda e: "break")
 
         # Quote label: cho phép kéo thả, nhả chuột đổi quote, chặn double-click đè lên mini mode
         self.quote_label.bind("<ButtonPress-1>", self.start_drag)
@@ -889,7 +1167,7 @@ class FloatingClock:
         hover_widgets = [
             self.root, self.frame, self.main_row, self.time_label, self.sub_label,
             self.date_label, self.quote_label, self.mascot_label,
-            self.salary_daily_label, self.salary_month_label, self.task_label,
+            self.salary_daily_label, self.salary_month_label, self.ot_btn, self.task_label,
             self.sys_info_label, self.weather_label, self.sound_status_label,
         ]
         if hasattr(self, "pomo_ctrl_frame"):
@@ -902,6 +1180,8 @@ class FloatingClock:
         self.root.bind("<p>", lambda e: self.toggle_mascot())
         self.root.bind("<P>", lambda e: self.toggle_mascot())
         self.root.bind("<F2>", lambda e: self.cycle_next_mode())
+        self.root.bind("<Control-v>", self._on_paste_youtube)
+        self.root.bind("<Control-V>", self._on_paste_youtube)
         self.root.bind("<F9>", lambda e: self.toggle_focus_sound())
         self.root.bind("<m>", lambda e: self.toggle_mini_mode())
         self.root.bind("<M>", lambda e: self.toggle_mini_mode())
@@ -1514,8 +1794,8 @@ class FloatingClock:
         is_work = bool(self.config.get("target_time_is_work", True))
         today_str = now.strftime("%Y-%m-%d")
         if is_work:
-            # Chủ nhật không có ca làm → không báo tan làm
-            if now.weekday() == 6:
+            # Chủ nhật, ngày lễ, thứ 7 nghỉ (theo work_days khi bật lương) → không có ca, không báo tan làm
+            if not is_scheduled_workday(now, self.config):
                 return
             today_dep, today_tag = self.get_today_departure_info(now)
             tgt_str = today_dep
@@ -1627,6 +1907,9 @@ class FloatingClock:
             return
         # Đang mở context menu: không ép topmost kẻo đè menu xuống dưới đồng hồ
         if getattr(self, "_is_menu_open", False):
+            return
+        # Đang xem video YouTube: đồng hồ cố ý tàng hình & nằm dưới video → không ép topmost / khôi phục alpha
+        if getattr(self, "_hidden_for_video", False):
             return
         try:
             if not self.root.winfo_exists():
@@ -1741,11 +2024,18 @@ class FloatingClock:
                     self._last_sec_rendered = cur_sec
                     sal_cfg = self.config.get("salary", {})
                     if sal_cfg.get("enabled", False):
+                        if reset_ot_session_if_needed(self.config, now):
+                            self.save_config()
                         s_info = self.calculate_salary_info(now)
+                        self._cached_salary_info = s_info
                         if s_info.get("show_daily", True):
                             self.salary_daily_label.configure(text=s_info["daily_str"])
                         if s_info.get("show_monthly", True):
                             self.salary_month_label.configure(text=s_info["month_str"])
+                        self._update_ot_button_visibility(s_info)
+                    else:
+                        if hasattr(self, "ot_btn"):
+                            self.ot_btn.pack_forget()
 
                     if self.config.get("focus_task", {}).get("enabled", False):
                         t_txt = self.config.get("focus_task", {}).get("text", "")
@@ -1780,10 +2070,14 @@ class FloatingClock:
                 self.flash_step += 1
                 fl_color = "#EF4444" if self.flash_step % 2 == 0 else "#F59E0B"
                 self.frame.configure(highlightbackground=fl_color, highlightthickness=2)
+            elif (yt_prog := self.youtube.hover_progress()) is not None:
+                # Đang giữ chuột chờ chuyển sang YouTube: viền nhấp nháy đỏ, càng gần lúc chuyển càng nháy nhanh
+                self.frame.configure(highlightbackground=self.youtube.blink_color(yt_prog), highlightthickness=2)
             else:
                 self.frame.configure(highlightbackground=self.config.get("border_color", "#2a3447"), highlightthickness=1)
         except Exception:
-            pass
+            # Không nuốt lỗi im lặng nữa: ghi log (giới hạn 1 lần/phút cho mỗi lỗi để không phình file)
+            log_exception_throttled(source="UpdateLoop")
         finally:
             if not getattr(self, "_is_closing", False):
                 try:
@@ -1981,6 +2275,7 @@ class FloatingClock:
         quote_txt = self.current_quote if self.config.get("show_quote", True) else ""
         s_d_txt = self.salary_daily_label.cget("text") if not self.config.get("mini_mode", False) else ""
         s_m_txt = self.salary_month_label.cget("text") if not self.config.get("mini_mode", False) else ""
+        ot_txt = self.ot_btn.cget("text") if (not self.config.get("mini_mode", False) and self.ot_btn.winfo_manager()) else ""
         task_txt = self.task_label.cget("text") if not self.config.get("mini_mode", False) else ""
         sys_txt = self.sys_info_label.cget("text") if (not self.config.get("mini_mode", False) and self.config.get("show_sys_monitor", False)) else ""
         weather_txt = self.weather_label.cget("text") if not self.config.get("mini_mode", False) else ""
@@ -1991,6 +2286,7 @@ class FloatingClock:
             quote_txt != self._last_quote_rendered or
             len(s_d_txt) != len(getattr(self, "_last_sd_rendered", "")) or
             len(s_m_txt) != len(getattr(self, "_last_sm_rendered", "")) or
+            ot_txt != getattr(self, "_last_ot_rendered", "") or
             task_txt != getattr(self, "_last_task_rendered", "") or
             len(sys_txt) != len(getattr(self, "_last_sys_rendered", "")) or
             weather_txt != getattr(self, "_last_weather_rendered", "") or
@@ -2000,6 +2296,7 @@ class FloatingClock:
             self._last_quote_rendered = quote_txt
             self._last_sd_rendered = s_d_txt
             self._last_sm_rendered = s_m_txt
+            self._last_ot_rendered = ot_txt
             self._last_task_rendered = task_txt
             self._last_sys_rendered = sys_txt
             self._last_weather_rendered = weather_txt
@@ -2049,7 +2346,7 @@ class FloatingClock:
 
     def set_opacity(self, opacity_float):
         self.config["opacity"] = opacity_float
-        self.root.attributes("-alpha", opacity_float)
+        self._set_window_alpha(opacity_float)  # qua hàm chung để không phá trạng thái tàng hình khi đang xem video
         self.save_config()
 
     def set_font_size(self, size_int):
@@ -2105,7 +2402,7 @@ class FloatingClock:
         # Loại trừ tương hỗ: Nếu bật Xuyên chuột thì bắt buộc tắt Tự làm mờ
         if new_val and self.config.get("auto_hide", False):
             self.config["auto_hide"] = False
-            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            self._set_window_alpha(self.config.get("opacity", 0.90))
 
         ok = self.apply_click_through(new_val)
         # Nếu Win32 không áp được style, rollback config để UI/menu không nói dối
@@ -2209,7 +2506,11 @@ class FloatingClock:
         except Exception:
             pass
 
-        # 3. Tắt âm thanh nền và chuông
+        # 3. Tắt âm thanh nền, chuông và trình phát YouTube
+        try:
+            self.youtube.shutdown()
+        except Exception:
+            pass
         try:
             self.focus_sound_mgr.stop()
             sound_mgr.stop_alarm()

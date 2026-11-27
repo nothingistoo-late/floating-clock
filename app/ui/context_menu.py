@@ -6,6 +6,7 @@ import tkinter as tk
 from app.core.autostart import is_start_with_windows
 from app.core.salary_calculator import get_payday_countdown_info
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
+from app.ui.youtube_overlay import HOVER_DELAY_PRESETS, LOOP_LABELS, OPACITY_PRESETS, SIZE_PRESETS
 
 
 class ContextMenuBuilder:
@@ -50,6 +51,13 @@ class ContextMenuBuilder:
             command=lambda: app.open_control_center(initial_tab=1)
         )
 
+        sal_cfg = app.config.get("salary", {})
+        if sal_cfg.get("enabled", False):
+            menu.add_command(
+                label="📊  Thống kê chi tiết tiền lương...",
+                command=app.open_salary_stats_dialog
+            )
+
         menu.add_command(
             label="🎯  Task trọng tâm hôm nay... [T]",
             command=app.open_quick_task_dialog
@@ -93,6 +101,76 @@ class ContextMenuBuilder:
             label=f"{'✓ ' if is_snd_playing else '   '}🎧  Âm thanh tập trung (White Noise) [F9]",
             menu=focus_menu
         )
+
+        # YouTube khi hover
+        yt = getattr(app, "youtube", None)
+        if yt is not None and yt.is_active():
+            yt_menu = tk.Menu(menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
+            yt_menu.add_command(label="🔗 Đổi link khác... [Ctrl+V]", command=app.open_youtube_link_dialog)
+            yt_st = yt.player.status or {}
+            if yt.is_playlist():
+                yt_count = yt_st.get("playlist_count") or 0
+                yt_pos = yt_st.get("playlist_pos")
+                pos_txt = f" ({yt_pos + 1}/{yt_count})" if isinstance(yt_pos, int) and yt_count > 1 else ""
+                yt_menu.add_command(label=f"⏭ Video tiếp theo{pos_txt}", command=yt.next_video)
+                yt_menu.add_command(label="⏮ Video trước", command=yt.prev_video)
+            yt_menu.add_command(
+                label="↺ Xem lại từ đầu" + (" (đã xem hết)" if yt_st.get("eof") else ""),
+                command=yt.replay
+            )
+            loop_menu_yt = tk.Menu(yt_menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
+            cur_loop = app.config.get("youtube", {}).get("loop", "off")
+            for loop_key, loop_lbl in LOOP_LABELS:
+                pfx = "✓ " if cur_loop == loop_key else "   "
+                loop_menu_yt.add_command(label=f"{pfx}{loop_lbl}", command=lambda m=loop_key: yt.set_loop(m))
+            yt_menu.add_cascade(label="🔁 Lặp lại", menu=loop_menu_yt)
+            yt_menu.add_separator()
+            hover_on = app.config.get("youtube", {}).get("hover_enabled", True)
+            yt_menu.add_command(
+                label=f"{'✓ ' if hover_on else '   '}Hiện video khi rê chuột",
+                command=app.toggle_youtube_hover
+            )
+            delay_menu_yt = tk.Menu(yt_menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
+            cur_delay = yt.get_hover_delay()
+            for d_sec in HOVER_DELAY_PRESETS:
+                pfx = "✓ " if abs(cur_delay - d_sec) < 0.05 else "   "
+                delay_menu_yt.add_command(
+                    label=f"{pfx}{d_sec:g} giây",
+                    command=lambda v=d_sec: yt.set_hover_delay(v)
+                )
+            yt_menu.add_cascade(label=f"⏱ Giữ chuột bao lâu mới hiện video (đang {cur_delay:g}s)", menu=delay_menu_yt)
+
+            # Kích thước khung video
+            size_menu_yt = tk.Menu(yt_menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
+            cur_w = int(app.config.get("youtube", {}).get("width", 480))
+            for sz_name, sz_w in SIZE_PRESETS:
+                pfx = "✓ " if abs(cur_w - sz_w) < 20 else "   "
+                size_menu_yt.add_command(
+                    label=f"{pfx}{sz_name} ({sz_w}×{sz_w * 9 // 16})",
+                    command=lambda w=sz_w: app.youtube.set_width(w)
+                )
+            yt_menu.add_cascade(label=f"📐 Kích thước video (đang {cur_w}px)", menu=size_menu_yt)
+
+            # Độ mờ khung video khi hiện
+            op_menu_yt = tk.Menu(yt_menu, tearoff=0, bg=menu_bg, fg=menu_fg, activebackground=active_bg, activeforeground=active_fg, font=menu_font)
+            cur_op = app.youtube.get_opacity()
+            for op in OPACITY_PRESETS:
+                pfx = "✓ " if abs(cur_op - op) < 0.03 else "   "
+                op_lbl = "Rõ hẳn" if op >= 1.0 else f"Mờ {int(round((1 - op) * 100))}%"
+                op_menu_yt.add_command(
+                    label=f"{pfx}{int(op * 100)}% ({op_lbl})",
+                    command=lambda v=op: app.youtube.set_opacity(v)
+                )
+            yt_menu.add_cascade(label=f"🌫️ Độ mờ video (đang {int(cur_op * 100)}%)", menu=op_menu_yt)
+
+            yt_menu.add_separator()
+            yt_menu.add_command(label="⏹ Tắt video YouTube", command=app.stop_youtube)
+            menu.add_cascade(label="✓ 📺  YouTube đang mở (rê chuột để xem)", menu=yt_menu)
+        else:
+            menu.add_command(
+                label="📺  Xem YouTube khi rê chuột... [Ctrl+V]",
+                command=app.open_youtube_link_dialog
+            )
 
         menu.add_command(
             label="💬  Đổi câu động viên GenZ mới 🎲",

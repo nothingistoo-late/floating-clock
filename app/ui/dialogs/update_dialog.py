@@ -6,13 +6,13 @@ import tkinter as tk
 from tkinter import ttk
 import webbrowser
 
-from app.constants import GITHUB_RELEASES_URL
+from app.services.update_service import UpdateManager
 
 
 class UpdateNotificationDialog(tk.Toplevel):
     """Cửa sổ thông báo có phiên bản mới với changelog và nút tải về"""
 
-    def __init__(self, master, update_info):
+    def __init__(self, master, update_info, extra_note=None):
         real_master = getattr(master, "root", master)
         super().__init__(real_master)
         self.withdraw()
@@ -54,6 +54,18 @@ class UpdateNotificationDialog(tk.Toplevel):
             bg="#0f172a",
             fg="#A78BFA",
         ).pack(anchor="w", pady=(2, 0))
+
+        # Ghi chú thêm (vd: kết quả cập nhật yt-dlp chạy cùng lúc)
+        if extra_note:
+            tk.Label(
+                header_f,
+                text=extra_note,
+                font=("Segoe UI", 8),
+                bg="#0f172a",
+                fg="#34D399",
+                justify="left",
+                wraplength=440,
+            ).pack(anchor="w", pady=(2, 0))
 
         # Title of the release
         rel_title = self.update_info.get("title", "")
@@ -136,7 +148,8 @@ class UpdateNotificationDialog(tk.Toplevel):
         self.focus_force()
 
     def _open_download(self):
-        url = self.update_info.get("release_url") or GITHUB_RELEASES_URL
+        # Chỉ mở link GitHub hợp lệ (chống link lạ trong phản hồi API)
+        url = UpdateManager.sanitize_release_url(self.update_info.get("release_url"))
         try:
             webbrowser.open(url)
         except Exception:

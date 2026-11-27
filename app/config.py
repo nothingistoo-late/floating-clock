@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import sys
+from datetime import datetime
 
 if getattr(sys, 'frozen', False):
     APP_DIR = os.path.dirname(sys.executable)
@@ -58,6 +59,7 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
+        "gemini_model": "gemini-flash-latest",  # alias luôn trỏ Gemini Flash mới nhất
         "auto_refresh_min": 15
     },
     # Hydration & Posture reminder
@@ -89,7 +91,19 @@ DEFAULT_CONFIG = {
         "work_days": 22,
         "work_hours": 8.0,
         "calc_cycle": "calendar_month",  # "calendar_month" hoặc "payday_cycle"
-        "hidden": False
+        "hidden": False,
+        # Tăng ca: bấm nút sau tan làm → nhập giờ bắt đầu → đếm realtime × hệ số
+        "ot_multiplier_weekday": 1.5,
+        "ot_multiplier_sunday": 2.0,
+        "ot_multiplier_holiday": 3.0,
+        "ot_start": None,           # "HH:MM:SS" hoặc null
+        "ot_date": "",              # YYYY-MM-DD — reset session khi đổi ngày
+        # BHXH NLĐ (ước lượng realtime)
+        "deduct_bhxh": True,
+        "bhxh_base": 0,             # 0 = dùng monthly
+        "bhxh_rate_pct": 10.5,
+        # Hiển thị trên đồng hồ: "gross" | "net"
+        "clock_display": "gross",
     },
     # Focus MIT Task (Mục tiêu quan trọng trong ngày)
     "focus_task": {
@@ -125,6 +139,18 @@ DEFAULT_CONFIG = {
         "sound_type": "rain",
         "volume": 50
     },
+    # Xem YouTube khi rê chuột vào đồng hồ (mpv nhúng, phát trực tuyến)
+    "youtube": {
+        "last_url": "",
+        "width": 480,               # bề rộng popup video (px), cao tự theo 16:9
+        "volume": 70,
+        "hover_enabled": True,
+        "opacity": 1.0,             # độ đậm khung video khi hiện (0.4 = mờ nhiều, 1.0 = rõ hẳn)
+        "loop": "off",              # "off" hết thì dừng | "one" lặp 1 video | "all" lặp cả danh sách
+        "hover_delay_sec": 3.0,     # giữ chuột trên đồng hồ bao lâu (giây) mới chuyển sang video
+        "quality": "720",           # chất lượng video: "1080" | "720" | "480" | "360"
+        "speed": 1.0                # tốc độ phát
+    },
     # Auto Check Updates from GitHub (Tự kiểm tra cập nhật)
     "check_updates_on_startup": True,
     "last_update_check_date": ""
@@ -153,11 +179,24 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, dict):
-                    cfg = deep_merge(cfg, data)
+            if isinstance(data, dict):
+                cfg = deep_merge(cfg, data)
+            else:
+                _backup_broken_config()
         except Exception:
-            pass
+            # File hỏng (JSON lỗi, sai encoding...) → giữ lại bản sao để người dùng khôi phục,
+            # tránh lần save kế tiếp ghi đè mất hết cấu hình cũ.
+            _backup_broken_config()
     return cfg
+
+
+def _backup_broken_config():
+    """Đổi tên file config hỏng thành clock_config.json.broken-YYYYmmdd-HHMMSS.bak"""
+    try:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        os.replace(CONFIG_FILE, f"{CONFIG_FILE}.broken-{stamp}.bak")
+    except Exception:
+        pass
 
 
 def save_config(config_dict):
