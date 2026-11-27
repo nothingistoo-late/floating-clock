@@ -33,6 +33,20 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app\bin"
           curl.exe -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -o "app\bin\yt-dlp.exe"
 
+      - name: 📺 Download mpv player for YouTube hover video
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "app\bin"
+          $headers = @{ "User-Agent" = "floating-clock-ci"; "Authorization" = "Bearer $env:GITHUB_TOKEN" }
+          $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" -Headers $headers
+          $asset = $rel.assets | Where-Object { $_.name -match '^mpv-x86_64-\d{8}-git-[0-9a-f]+\.7z$' } | Select-Object -First 1
+          if (-not $asset) { throw "Khong tim thay ban mpv x86_64 trong release moi nhat" }
+          curl.exe -L $asset.browser_download_url -o "mpv.7z"
+          7z e "mpv.7z" "mpv.exe" "-oapp\bin" -y
+          if (-not (Test-Path "app\bin\mpv.exe")) { throw "Giai nen mpv.exe that bai" }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 🔨 Build Standalone EXE with PyInstaller
         run: |
           pyinstaller FloatingClock.spec --clean --noconfirm
@@ -51,7 +65,11 @@ jobs:
         shell: powershell
         run: |
           $ver = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v1.0.0" }
-          Compress-Archive -Path "dist\FloatingClock.exe" -DestinationPath "dist\FloatingClock_Portable_$ver.zip" -Force
+          # mpv.exe để ngoài exe onefile (tránh giải nén ~30MB mỗi lần mở app) -> app\bin cạnh exe
+          New-Item -ItemType Directory -Force -Path "dist\portable\app\bin" | Out-Null
+          Copy-Item "dist\FloatingClock.exe" "dist\portable\"
+          if (Test-Path "app\bin\mpv.exe") { Copy-Item "app\bin\mpv.exe" "dist\portable\app\bin\" }
+          Compress-Archive -Path "dist\portable\*" -DestinationPath "dist\FloatingClock_Portable_$ver.zip" -Force
 
       - name: 🚀 Publish GitHub Release
         uses: softprops/action-gh-release@v2

@@ -139,6 +139,18 @@ DEFAULT_CONFIG = {
         "sound_type": "rain",
         "volume": 50
     },
+    # Xem YouTube khi rê chuột vào đồng hồ (mpv nhúng, phát trực tuyến)
+    "youtube": {
+        "last_url": "",
+        "width": 480,               # bề rộng popup video (px), cao tự theo 16:9
+        "volume": 70,
+        "hover_enabled": True,
+        "opacity": 1.0,             # độ đậm khung video khi hiện (0.4 = mờ nhiều, 1.0 = rõ hẳn)
+        "loop": "off",              # "off" hết thì dừng | "one" lặp 1 video | "all" lặp cả danh sách
+        "hover_delay_sec": 3.0,     # giữ chuột trên đồng hồ bao lâu (giây) mới chuyển sang video
+        "quality": "720",           # chất lượng video: "1080" | "720" | "480" | "360"
+        "speed": 1.0                # tốc độ phát
+    },
     # Auto Check Updates from GitHub (Tự kiểm tra cập nhật)
     "check_updates_on_startup": True,
     "last_update_check_date": ""

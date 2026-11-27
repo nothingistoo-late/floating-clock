@@ -49,6 +49,8 @@ Name: "autostart"; Description: "Tự động khởi động cùng Windows khi m
 
 [Files]
 Source: "..\dist\FloatingClock.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Trình phát mpv cho tính năng xem YouTube khi rê chuột (để ngoài exe onefile cho khởi động nhanh)
+Source: "..\app\bin\mpv.exe"; DestDir: "{app}\app\bin"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

@@ -26,6 +26,7 @@ from app.core.win32_utils import (
 from app.services.ai_service import AIManager
 from app.services.sound_service import FocusSoundManager, sound_mgr
 from app.services.update_service import UpdateManager
+from app.services.ytdlp_updater import YtDlpUpdater
 from app.services.weather_service import WeatherManager
 from app.ui.context_menu import ContextMenuBuilder
 from app.ui.dialogs.alert_dialog import AlertNotificationDialog
@@ -33,9 +34,13 @@ from app.ui.dialogs.control_center import ControlCenterDialog
 from app.ui.dialogs.hydration_dialog import HydrationReminderDialog
 from app.ui.dialogs.task_dialog import QuickTaskDialog
 from app.ui.dialogs.update_dialog import UpdateNotificationDialog
+from app.ui.dialogs.update_progress_dialog import UpdateProgressDialog
 from app.ui.dialogs.weather_dialog import WeatherForecastDialog
 from app.ui.dialogs.overtime_start_dialog import OvertimeStartDialog
 from app.ui.dialogs.salary_stats_dialog import SalaryStatsDialog
+from app.ui.dialogs.youtube_link_dialog import YouTubeLinkDialog
+from app.ui.youtube_overlay import YouTubeOverlay
+from app.services.youtube_player import parse_youtube_url
 from app.core.salary_calculator import clear_ot_session, is_scheduled_workday, reset_ot_session_if_needed
 from app.core.logger import log_exception_throttled
 from app.services.mascot_service import MascotManager
@@ -54,7 +59,11 @@ class FloatingClock:
         self.ai_mgr = AIManager(self.config)
         self.mascot_mgr = MascotManager(self.root, self.config)
         self.update_mgr = UpdateManager(self.config)
+        # Cập nhật yt-dlp (trình lấy video YouTube) cùng lúc với kiểm tra cập nhật app
+        self.ytdlp_updater = YtDlpUpdater()
         self._last_mascot_state = None
+        # Popup xem YouTube khi rê chuột vào đồng hồ
+        self.youtube = YouTubeOverlay(self)
 
         # Global Hotkey Manager (Fix F8 click-through lock)
         # Debounce F8: tránh queue nhiều after() khi giữ/spam phím → config lệch với style thật
@@ -329,6 +338,43 @@ class FloatingClock:
         self._ot_dialog = OvertimeStartDialog(self, default_time=default_t)
         self._bind_dialog_restore(self._ot_dialog)
 
+    # ---------------- 📺 YOUTUBE KHI HOVER ----------------
+    def open_youtube_link_dialog(self):
+        """Mở hộp thoại dán link YouTube."""
+        if getattr(self, "_yt_dialog", None):
+            try:
+                if self._yt_dialog.winfo_exists():
+                    self._yt_dialog.lift()
+                    self._yt_dialog.focus_force()
+                    return
+            except Exception:
+                pass
+        self._yt_dialog = YouTubeLinkDialog(self, initial_url="")
+        self._bind_dialog_restore(self._yt_dialog)
+
+    def play_youtube_url(self, raw_url):
+        ok, msg = self.youtube.play_url(raw_url)
+        if not ok:
+            self._safe_messagebox("showwarning", "Xem YouTube", msg)
+
+    def stop_youtube(self):
+        self.youtube.stop()
+
+    def toggle_youtube_hover(self):
+        self.youtube.toggle_hover_enabled()
+
+    def _on_paste_youtube(self, event=None):
+        """Ctrl+V trên đồng hồ: clipboard có link YouTube thì phát luôn, không thì mở hộp thoại."""
+        try:
+            txt = self.root.clipboard_get()
+        except Exception:
+            txt = ""
+        if parse_youtube_url(txt):
+            self.play_youtube_url(txt)
+        else:
+            self.open_youtube_link_dialog()
+        return "break"
+
     def stop_overtime_session(self):
         clear_ot_session(self.config)
         self.save_config()
@@ -420,7 +466,41 @@ class FloatingClock:
             if last_checked == today_str:
                 return
 
-        def _on_result(has_update, update_info, err):
+        # Đang kiểm tra dở (bấm 2 lần / lượt tự kiểm tra lúc khởi động chưa xong)
+        if getattr(self, "_update_check_running", False):
+            if interactive:
+                dlg = getattr(self, "_update_progress_dialog", None)
+                try:
+                    if dlg is not None and dlg.winfo_exists():
+                        dlg.lift()
+                        return
+                except Exception:
+                    pass
+                self._safe_messagebox(
+                    "showinfo", "Kiểm tra cập nhật",
+                    "App đang kiểm tra cập nhật ở nền, chờ chút rồi thử lại nha (・ω・)ノ",
+                )
+            return
+        self._update_check_running = True
+
+        # Bấm tay → hiện cửa sổ tiến trình cho người dùng biết đang làm gì (tự kiểm tra ngầm thì không)
+        progress = UpdateProgressDialog(self) if interactive else None
+        self._update_progress_dialog = progress
+        if progress is not None:
+            self._bind_dialog_restore(progress)
+
+        # Chạy song song 2 việc: kiểm tra bản app mới + cập nhật yt-dlp. Đủ cả 2 kết quả mới báo 1 lần.
+        results = {}
+
+        def _finish():
+            if "app" not in results or "ytdlp" not in results:
+                return
+            self._update_check_running = False
+            if progress is not None:
+                progress.close()
+            self._update_progress_dialog = None
+            has_update, update_info, err = results["app"]
+            yt_note = self._ytdlp_result_text(results["ytdlp"])
             if not err:
                 self.config["last_update_check_date"] = today_str
                 self.save_config()
@@ -434,7 +514,7 @@ class FloatingClock:
                             return
                     except Exception:
                         pass
-                self._update_dialog = UpdateNotificationDialog(self, update_info)
+                self._update_dialog = UpdateNotificationDialog(self, update_info, extra_note=yt_note)
                 try:
                     self._update_dialog.bind(
                         "<Destroy>",
@@ -445,22 +525,74 @@ class FloatingClock:
                 self.root.after(80, self.ensure_window_visible)
             elif interactive:
                 if err:
-                    self._safe_messagebox(
-                        "showwarning",
-                        "Kiểm tra cập nhật",
-                        f"Không thể kết nối đến máy chủ GitHub:\n{err}",
-                    )
+                    app_line = f"Ứng dụng: không thể kết nối đến máy chủ GitHub:\n{err}"
                 else:
-                    self._safe_messagebox(
-                        "showinfo",
-                        "Kiểm tra cập nhật",
-                        f"Bạn đang sử dụng phiên bản mới nhất ({APP_VERSION}) rồi nha! (づ｡◕‿‿◕｡)づ",
-                    )
+                    app_line = f"Ứng dụng: bạn đang dùng phiên bản mới nhất ({APP_VERSION}) rồi nha! (づ｡◕‿‿◕｡)づ"
+                yt_failed = bool(results["ytdlp"].get("error"))
+                self._safe_messagebox(
+                    "showwarning" if (err or yt_failed) else "showinfo",
+                    "Kiểm tra cập nhật",
+                    f"{app_line}\n\n{yt_note}" if yt_note else app_line,
+                )
+
+        def _on_app_result(has_update, update_info, err):
+            results["app"] = (has_update, update_info, err)
+            if progress is not None:
+                if err:
+                    progress.set_app_status("Ứng dụng: không kết nối được GitHub", done=True)
+                elif has_update:
+                    latest = (update_info or {}).get("latest_version", "")
+                    progress.set_app_status(f"Ứng dụng: có bản mới {latest}!", done=True)
+                else:
+                    progress.set_app_status(f"Ứng dụng: đang là bản mới nhất ({APP_VERSION})", done=True)
+            _finish()
+
+        def _on_ytdlp_progress(text):
+            if progress is not None:
+                done = text.endswith("✓")
+                progress.set_ytdlp_status(f"yt-dlp: {text.rstrip(' ✓')}", done=done)
+
+        def _on_ytdlp_result(res):
+            results["ytdlp"] = res or {}
+            if progress is not None:
+                progress.set_ytdlp_status("yt-dlp: xong", done=True)
+            _finish()
+
+        started = self.ytdlp_updater.update_async(
+            callback=_on_ytdlp_result,
+            dispatcher=lambda fn: self.root.after(0, fn),
+            on_progress=_on_ytdlp_progress,
+        )
+        if not started:
+            results["ytdlp"] = {"skipped": True}   # đang cập nhật dở từ lượt trước
+
+        def _watchdog():
+            # Phòng 1 trong 2 kết quả không bao giờ về → đừng treo cửa sổ / khóa lượt kiểm tra sau
+            if "app" in results and "ytdlp" in results:
+                return
+            results.setdefault("app", (False, None, "Hết thời gian chờ phản hồi từ GitHub"))
+            results.setdefault("ytdlp", {"error": "Hết thời gian chờ cập nhật"})
+            _finish()
+        self.root.after(5 * 60 * 1000, _watchdog)
 
         self.update_mgr.check_for_updates(
-            callback=_on_result,
+            callback=_on_app_result,
             dispatcher=lambda fn: self.root.after(0, fn),
         )
+
+    @staticmethod
+    def _ytdlp_result_text(res):
+        """Một dòng tóm tắt kết quả cập nhật yt-dlp để ghép vào thông báo."""
+        res = res or {}
+        if res.get("skipped"):
+            return "yt-dlp (trình lấy video YouTube): đang cập nhật ở nền, thử lại sau ít phút."
+        if res.get("updated"):
+            return f"yt-dlp (trình lấy video YouTube): đã cập nhật {res.get('before')} → {res.get('after')} ✓"
+        if res.get("ok"):
+            return f"yt-dlp (trình lấy video YouTube): đang là bản mới nhất ({res.get('after')})."
+        if res.get("error"):
+            return f"yt-dlp (trình lấy video YouTube): chưa cập nhật được (｡•́︿•̀｡)\n{res.get('error')}"
+        return ""
 
     def toggle_autohide(self):
         new_val = not self.config.get("auto_hide", False)
@@ -527,9 +659,29 @@ class FloatingClock:
         full = self._full_opacity()
         return max(0.40, full * 0.40)
 
+    def hide_clock_for_video(self):
+        """Video YouTube đang hiện → đồng hồ tàng hình hẳn (tránh hai lớp chồng nhau gây nhiễu)."""
+        self._hidden_for_video = True
+        self._set_window_alpha(0.0)
+
+    def restore_clock_after_video(self):
+        """Video ẩn đi → trả đồng hồ về độ trong suốt bình thường (theo auto-hide nếu bật)."""
+        if not getattr(self, "_hidden_for_video", False):
+            return
+        self._hidden_for_video = False
+        self._sync_autohide_alpha()
+        try:
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
+
     def _set_window_alpha(self, alpha):
         try:
-            a = max(0.15, min(1.0, float(alpha)))
+            if getattr(self, "_hidden_for_video", False):
+                # Đang xem video: mọi nơi muốn chỉnh alpha (auto-hide, đổi opacity...) đều giữ tàng hình
+                a = 0.0
+            else:
+                a = max(0.15, min(1.0, float(alpha)))
             # Tránh gọi attributes lặp vô ích (giảm giật); vẫn ép khi lệch
             try:
                 cur = float(self.root.attributes("-alpha"))
@@ -1028,6 +1180,8 @@ class FloatingClock:
         self.root.bind("<p>", lambda e: self.toggle_mascot())
         self.root.bind("<P>", lambda e: self.toggle_mascot())
         self.root.bind("<F2>", lambda e: self.cycle_next_mode())
+        self.root.bind("<Control-v>", self._on_paste_youtube)
+        self.root.bind("<Control-V>", self._on_paste_youtube)
         self.root.bind("<F9>", lambda e: self.toggle_focus_sound())
         self.root.bind("<m>", lambda e: self.toggle_mini_mode())
         self.root.bind("<M>", lambda e: self.toggle_mini_mode())
@@ -1754,6 +1908,9 @@ class FloatingClock:
         # Đang mở context menu: không ép topmost kẻo đè menu xuống dưới đồng hồ
         if getattr(self, "_is_menu_open", False):
             return
+        # Đang xem video YouTube: đồng hồ cố ý tàng hình & nằm dưới video → không ép topmost / khôi phục alpha
+        if getattr(self, "_hidden_for_video", False):
+            return
         try:
             if not self.root.winfo_exists():
                 return
@@ -1913,6 +2070,9 @@ class FloatingClock:
                 self.flash_step += 1
                 fl_color = "#EF4444" if self.flash_step % 2 == 0 else "#F59E0B"
                 self.frame.configure(highlightbackground=fl_color, highlightthickness=2)
+            elif (yt_prog := self.youtube.hover_progress()) is not None:
+                # Đang giữ chuột chờ chuyển sang YouTube: viền nhấp nháy đỏ, càng gần lúc chuyển càng nháy nhanh
+                self.frame.configure(highlightbackground=self.youtube.blink_color(yt_prog), highlightthickness=2)
             else:
                 self.frame.configure(highlightbackground=self.config.get("border_color", "#2a3447"), highlightthickness=1)
         except Exception:
@@ -2186,7 +2346,7 @@ class FloatingClock:
 
     def set_opacity(self, opacity_float):
         self.config["opacity"] = opacity_float
-        self.root.attributes("-alpha", opacity_float)
+        self._set_window_alpha(opacity_float)  # qua hàm chung để không phá trạng thái tàng hình khi đang xem video
         self.save_config()
 
     def set_font_size(self, size_int):
@@ -2242,7 +2402,7 @@ class FloatingClock:
         # Loại trừ tương hỗ: Nếu bật Xuyên chuột thì bắt buộc tắt Tự làm mờ
         if new_val and self.config.get("auto_hide", False):
             self.config["auto_hide"] = False
-            self.root.attributes("-alpha", self.config.get("opacity", 0.90))
+            self._set_window_alpha(self.config.get("opacity", 0.90))
 
         ok = self.apply_click_through(new_val)
         # Nếu Win32 không áp được style, rollback config để UI/menu không nói dối
@@ -2346,7 +2506,11 @@ class FloatingClock:
         except Exception:
             pass
 
-        # 3. Tắt âm thanh nền và chuông
+        # 3. Tắt âm thanh nền, chuông và trình phát YouTube
+        try:
+            self.youtube.shutdown()
+        except Exception:
+            pass
         try:
             self.focus_sound_mgr.stop()
             sound_mgr.stop_alarm()

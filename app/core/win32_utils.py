@@ -19,6 +19,9 @@ user32 = ctypes.windll.user32
 
 # SetWindowPos HWND insert-after
 HWND_TOPMOST = -1
+# Phải truyền dạng HWND con trỏ: int -1 bị ctypes truyền thành 32-bit (0xFFFFFFFF) trên Windows 64-bit
+# → SetWindowPos báo lỗi 1400 (invalid window handle) và không làm gì cả
+_HWND_TOPMOST_PTR = wintypes.HWND(-1)
 # GetSystemMetrics virtual desktop
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
@@ -73,7 +76,7 @@ def force_topmost(tk_window):
         if not top:
             return
         # SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-        user32.SetWindowPos(top, HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+        user32.SetWindowPos(top, _HWND_TOPMOST_PTR, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
     except Exception:
         pass
 
@@ -254,7 +257,7 @@ def activate_existing_floating_clock():
             user32.ShowWindow(hwnd, SW_RESTORE)
             user32.ShowWindow(hwnd, SW_SHOW)
             # HWND_TOPMOST, NOMOVE|NOSIZE|SHOWWINDOW
-            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            user32.SetWindowPos(hwnd, _HWND_TOPMOST_PTR, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
             user32.SetForegroundWindow(hwnd)
         except Exception:
             pass
@@ -294,3 +297,170 @@ class SingleInstanceMutex:
                 pass
             self._mutex = None
 
+
+
+# ====================================================================
+# 📺 Tiện ích cho trình phát YouTube nhúng (popup video khi hover)
+# ====================================================================
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+MONITOR_DEFAULTTONEAREST = 2
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", _RECT),
+                ("rcWork", _RECT), ("dwFlags", wintypes.DWORD)]
+
+
+_MonitorFromPoint = user32.MonitorFromPoint
+_MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+_MonitorFromPoint.restype = wintypes.HANDLE
+_GetMonitorInfoW = user32.GetMonitorInfoW
+_GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MONITORINFO)]
+_GetMonitorInfoW.restype = wintypes.BOOL
+
+
+def get_monitor_work_area(x, y):
+    """
+    Vùng làm việc (trừ taskbar) của màn hình chứa điểm (x, y): (left, top, right, bottom).
+    Lỗi → dùng desktop ảo.
+    """
+    try:
+        hmon = _MonitorFromPoint(wintypes.POINT(int(x), int(y)), MONITOR_DEFAULTTONEAREST)
+        mi = _MONITORINFO()
+        mi.cbSize = ctypes.sizeof(_MONITORINFO)
+        if hmon and _GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            r = mi.rcWork
+            return (int(r.left), int(r.top), int(r.right), int(r.bottom))
+    except Exception:
+        pass
+    vx, vy, vw, vh = get_virtual_screen_rect()
+    return (vx, vy, vx + vw, vy + vh)
+
+
+def move_window_noactivate(tk_window, x, y, w=None, h=None, topmost=True):
+    """
+    Di chuyển / đổi cỡ cửa sổ Tk bằng SetWindowPos + SWP_NOACTIVATE:
+    hiện popup khi hover mà KHÔNG cướp focus bàn phím của app người dùng đang gõ.
+    """
+    try:
+        _, top = resolve_tk_hwnds(tk_window)
+        if not top:
+            return False
+        flags = SWP_NOACTIVATE
+        if w is None or h is None:
+            flags |= SWP_NOSIZE
+            w = h = 0
+        insert_after = _HWND_TOPMOST_PTR if topmost else None
+        if not topmost:
+            flags |= SWP_NOZORDER
+        return bool(user32.SetWindowPos(top, insert_after, int(x), int(y), int(w), int(h), flags))
+    except Exception:
+        return False
+
+
+def raise_topmost_noactivate(tk_window):
+    """Đưa cửa sổ lên trên cùng (topmost) mà không đổi vị trí / kích thước / focus."""
+    try:
+        _, top = resolve_tk_hwnds(tk_window)
+        if top:
+            user32.SetWindowPos(top, _HWND_TOPMOST_PTR, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+    except Exception:
+        pass
+
+
+# --- Job Object: process con (mpv) tự bị tắt khi app thoát hoặc crash ---
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_ulonglong) for n in (
+        "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+        "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+
+class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+        ("IoInfo", _IO_COUNTERS),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+_JobObjectExtendedLimitInformation = 9
+_kill_job_handle = None
+
+
+def _get_kill_job():
+    """Tạo (1 lần) Job Object có cờ KILL_ON_JOB_CLOSE; handle giữ tới khi process app kết thúc."""
+    global _kill_job_handle
+    if _kill_job_handle:
+        return _kill_job_handle
+    k32 = ctypes.windll.kernel32
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.SetInformationJobObject.restype = wintypes.BOOL
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not k32.SetInformationJobObject(job, _JobObjectExtendedLimitInformation,
+                                       ctypes.byref(info), ctypes.sizeof(info)):
+        k32.CloseHandle(job)
+        return None
+    _kill_job_handle = job
+    return job
+
+
+def assign_process_to_kill_job(process_handle):
+    """Gắn process con vào Job kill-on-close. Trả True nếu thành công."""
+    try:
+        job = _get_kill_job()
+        if not job:
+            return False
+        k32 = ctypes.windll.kernel32
+        k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        k32.AssignProcessToJobObject.restype = wintypes.BOOL
+        return bool(k32.AssignProcessToJobObject(job, process_handle))
+    except Exception:
+        return False
+
+
+def is_left_mouse_down():
+    """True nếu chuột trái đang được giữ (vd: đang kéo thanh tua video) — tránh ẩn popup giữa chừng."""
+    try:
+        return bool(user32.GetAsyncKeyState(0x01) & 0x8000)
+    except Exception:
+        return False
+
+
+def is_any_mouse_button_down():
+    """True nếu đang giữ chuột trái / phải / giữa (người dùng đang thao tác)."""
+    try:
+        return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in (0x01, 0x02, 0x04))
+    except Exception:
+        return False
