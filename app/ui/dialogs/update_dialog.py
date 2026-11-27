@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 import webbrowser
 
-from app.constants import GITHUB_RELEASES_URL
+from app.services.update_service import UpdateManager
 
 
 class UpdateNotificationDialog(tk.Toplevel):
@@ -136,7 +136,8 @@ class UpdateNotificationDialog(tk.Toplevel):
         self.focus_force()
 
     def _open_download(self):
-        url = self.update_info.get("release_url") or GITHUB_RELEASES_URL
+        # Chỉ mở link GitHub hợp lệ (chống link lạ trong phản hồi API)
+        url = UpdateManager.sanitize_release_url(self.update_info.get("release_url"))
         try:
             webbrowser.open(url)
         except Exception:

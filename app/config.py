@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import sys
+from datetime import datetime
 
 if getattr(sys, 'frozen', False):
     APP_DIR = os.path.dirname(sys.executable)
@@ -58,6 +59,7 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
+        "gemini_model": "gemini-flash-latest",  # alias luôn trỏ Gemini Flash mới nhất
         "auto_refresh_min": 15
     },
     # Hydration & Posture reminder
@@ -97,7 +99,7 @@ DEFAULT_CONFIG = {
         "ot_start": None,           # "HH:MM:SS" hoặc null
         "ot_date": "",              # YYYY-MM-DD — reset session khi đổi ngày
         # BHXH NLĐ (ước lượng realtime)
-        "deduct_bhxh": False,
+        "deduct_bhxh": True,
         "bhxh_base": 0,             # 0 = dùng monthly
         "bhxh_rate_pct": 10.5,
         # Hiển thị trên đồng hồ: "gross" | "net"
@@ -165,11 +167,24 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, dict):
-                    cfg = deep_merge(cfg, data)
+            if isinstance(data, dict):
+                cfg = deep_merge(cfg, data)
+            else:
+                _backup_broken_config()
         except Exception:
-            pass
+            # File hỏng (JSON lỗi, sai encoding...) → giữ lại bản sao để người dùng khôi phục,
+            # tránh lần save kế tiếp ghi đè mất hết cấu hình cũ.
+            _backup_broken_config()
     return cfg
+
+
+def _backup_broken_config():
+    """Đổi tên file config hỏng thành clock_config.json.broken-YYYYmmdd-HHMMSS.bak"""
+    try:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        os.replace(CONFIG_FILE, f"{CONFIG_FILE}.broken-{stamp}.bak")
+    except Exception:
+        pass
 
 
 def save_config(config_dict):

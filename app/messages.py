@@ -513,6 +513,7 @@ SALARY_TEXTS = {
     "hidden_daily": "💸 Ngày: •••••• đ",
     "hidden_month": "📅 {cycle_label}: •••••• đ",
     "weekend": "💸 Ngày: Nghỉ cuối tuần 🌴",
+    "holiday": "💸 Ngày: {daily} • Nghỉ lễ hưởng lương ヽ(・∀・)ﾉ",
     "before_work": "💸 Ngày: Chuẩn bị làm việc ({start_time}) ☕",
     "lunch_break": "🍱 Giờ nghỉ trưa",
     "after_work": "Đã tan làm 🎉",

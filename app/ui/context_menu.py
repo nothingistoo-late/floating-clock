@@ -50,6 +50,13 @@ class ContextMenuBuilder:
             command=lambda: app.open_control_center(initial_tab=1)
         )
 
+        sal_cfg = app.config.get("salary", {})
+        if sal_cfg.get("enabled", False):
+            menu.add_command(
+                label="📊  Thống kê chi tiết tiền lương...",
+                command=app.open_salary_stats_dialog
+            )
+
         menu.add_command(
             label="🎯  Task trọng tâm hôm nay... [T]",
             command=app.open_quick_task_dialog

@@ -2,11 +2,11 @@
 Weather Manager (Open-Meteo Realtime Forecast)
 """
 import json
-import ssl
 import threading
 import time
 import urllib.request
 from app.constants import CITY_COORDINATES, WEATHER_CODE_MAP
+from app.core.net_utils import create_secure_ssl_context
 
 
 class WeatherManager:
@@ -33,10 +33,7 @@ class WeatherManager:
         def _worker():
             self.is_fetching = True
             try:
-                try:
-                    ctx = ssl._create_unverified_context()
-                except Exception:
-                    ctx = None
+                ctx = create_secure_ssl_context()
                 url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
                 req = urllib.request.Request(url, headers={"User-Agent": "TopFloatingClock/2.1"})
                 with urllib.request.urlopen(req, timeout=6, context=ctx) as res:
