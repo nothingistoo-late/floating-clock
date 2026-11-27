@@ -1,2 +1,3 @@
-# Script shell luôn xuống dòng kiểu Unix (LF) — CRLF làm bash báo lỗi $'' trên Linux / một số máy build
+# Script shell luôn xuống dòng kiểu Unix (LF): CRLF làm bash báo lỗi "\r: command not found"
+# trên Linux / máy build có core.autocrlf=true
 *.sh text eol=lf
